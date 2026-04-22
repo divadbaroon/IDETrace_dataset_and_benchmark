@@ -120,16 +120,17 @@ Q_LAYER_3 = Q_LAYER_2 + [
     'post_error_self_fix',
 ]
 
-# Features that leak into no-effort prediction
+# Features that leak into no-effort prediction (direct effort signals only)
+# Thinking/cognitive features (post_thinking_*, post_response_thinking_s,
+# post_response_seeking_help_s) are KEPT — they measure cognitive engagement
+# after the AI response, not effort toward the task.
 POST_LEAKY = {
     'post_code_edits', 'post_code_edit_rate',
     'post_terminal_runs', 'post_terminal_errors',
     'post_error_self_fix',
-    'post_response_implementing_s', 'post_response_debugging_s',
-    'post_response_thinking_s', 'post_response_seeking_help_s',
+    'post_response_implementing_s',
+    'post_response_debugging_s',
     'post_response_testing_s',
-    'post_thinking_task_s', 'post_thinking_llm_s',
-    'post_thinking_error_s', 'post_thinking_code_s',
 }
 
 
