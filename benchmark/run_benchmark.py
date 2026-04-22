@@ -86,24 +86,50 @@ LAYER_3_FEATURES = LAYER_2_FEATURES + [
 # Query-level feature groups
 Q_LAYER_1 = [
     'pre_code_edits', 'pre_terminal_runs', 'pre_terminal_errors',
+    'pre_chars_inserted', 'pre_chars_deleted', 'pre_net_code_growth',
     'thinking_time_s', 'pre_duration_s', 'is_first_query',
-    'time_since_session_start_s',
+    'time_since_session_start_s', 'query_index', 'total_queries',
+    'pre_time_in_editor_s', 'pre_time_in_terminal_s', 'pre_time_in_chat_s',
 ]
 
 Q_LAYER_2 = Q_LAYER_1 + [
-    'pre_code_edit_rate', 'pre_longest_idle_s',
-    'pre_max_consecutive_errors', 'pre_error_self_fix', 'pre_error_ai_fix',
-    'time_since_last_query_s', 'test_passed_at_query', 'test_total_at_query',
+    'pre_code_edit_rate', 'pre_code_deletes', 'pre_delete_type_ratio',
+    'pre_max_consecutive_errors', 'pre_mean_time_between_runs_s',
+    'pre_error_self_fix', 'pre_error_ai_fix',
+    'pre_error_reading_time_s', 'pre_error_to_edit_s',
+    'pre_failed_test_self_fix', 'pre_failed_test_ai_fix',
+    'pre_failed_test_to_edit_s',
+    'pre_longest_idle_s', 'pre_time_in_task_s', 'pre_time_in_tests_s',
+    'pre_response_reading_time_s', 'pre_chat_to_code_latency_s',
+    'pre_tab_switches', 'pre_tab_hidden_time_s',
+    'thinking_task_s', 'thinking_llm_s', 'thinking_error_s', 'thinking_code_s',
+    'post_thinking_llm_s', 'post_thinking_error_s', 'post_thinking_code_s',
+    'time_since_last_query_s',
+    'query_length_chars', 'ai_response_length_chars',
+    'test_passed_at_query', 'test_total_at_query',
 ]
 
 Q_LAYER_3 = Q_LAYER_2 + [
-    'implementing_time_s', 'debugging_time_s',
-    'testing_time_s', 'seeking_help_time_s',
+    'implementing_time_s', 'debugging_time_s', 'testing_time_s',
+    'seeking_help_time_s',
+    'post_response_implementing_s', 'post_response_debugging_s',
+    'post_response_thinking_s', 'post_response_seeking_help_s',
+    'post_response_testing_s',
+    'post_code_edits', 'post_code_edit_rate',
+    'post_terminal_runs', 'post_terminal_errors',
+    'post_error_self_fix',
 ]
 
 # Features that leak into no-effort prediction
 POST_LEAKY = {
-    'post_code_edits', 'post_terminal_runs', 'post_terminal_errors',
+    'post_code_edits', 'post_code_edit_rate',
+    'post_terminal_runs', 'post_terminal_errors',
+    'post_error_self_fix',
+    'post_response_implementing_s', 'post_response_debugging_s',
+    'post_response_thinking_s', 'post_response_seeking_help_s',
+    'post_response_testing_s',
+    'post_thinking_task_s', 'post_thinking_llm_s',
+    'post_thinking_error_s', 'post_thinking_code_s',
 }
 
 
@@ -535,6 +561,35 @@ def main():
                             print(f"  {sn:<20s} {s['precision']:>8.3f} {s['recall']:>8.3f} {s['f1-score']:>8.3f} {int(s['support']):>8d}")
 
     # ══════════════════════════════════════════════════════════
+    #  TASK 1a: THINKING SUBTYPE PREDICTION
+    # ══════════════════════════════════════════════════════════
+
+    if tasks.get('next_behavioral_state') and 'label_next_thinking_subtype' in train_windows.columns:
+        print("\n" + "=" * 60)
+        print("  TASK 1a: THINKING SUBTYPE (4-class, conditional)")
+        print("=" * 60)
+
+        # Filter to windows where next state is thinking
+        train_think = train_windows[train_windows['label_next_thinking_subtype'].notna()].copy()
+        test_think = test_windows[test_windows['label_next_thinking_subtype'].notna()].copy()
+
+        if len(train_think) > 0 and len(test_think) > 0:
+            dist = train_think['label_next_thinking_subtype'].value_counts()
+            print(f"\n  Subtype distribution (train):")
+            for subtype, count in dist.items():
+                print(f"    {subtype}: {count} ({count/len(train_think)*100:.1f}%)")
+
+            res = run_ablation(
+                train_think, test_think,
+                'Thinking subtype', 'label_next_thinking_subtype',
+                window_layers, task_type='multiclass',
+            )
+            if res:
+                results['thinking_subtype'] = res
+        else:
+            print("  SKIPPED (insufficient data)")
+
+    # ══════════════════════════════════════════════════════════
     #  TASK 1b: NEXT BEHAVIORAL SEQUENCE
     # ══════════════════════════════════════════════════════════
 
@@ -615,6 +670,11 @@ def main():
 
     print_importance(train_windows, 'label_next_state', 'Next behavioral state', LAYER_3_FEATURES)
 
+    if 'label_next_thinking_subtype' in train_windows.columns:
+        train_think = train_windows[train_windows['label_next_thinking_subtype'].notna()]
+        if len(train_think) > 0:
+            print_importance(train_think, 'label_next_thinking_subtype', 'Thinking subtype', LAYER_3_FEATURES)
+
     if tasks.get('query_with_no_effort'):
         train_queries = pd.concat([load_dataset(n, 'queries') for n in train_names], ignore_index=True)
         q_feats = [c for c in Q_LAYER_3 if c not in POST_LEAKY]
@@ -634,10 +694,11 @@ def main():
     Test:  {', '.join(test_names)} ({test_windows['student_id'].nunique()} students)
 
   Tasks:
-    1. Next behavioral state (multiclass)
-    2. Next behavioral sequence (k=3, k=5)
-    3. Query imminence (15s, 30s, 45s, 60s)
-    4. Query with no effort (binary)
+    1. Next behavioral state (5-class)
+       1a. Thinking subtype (4-class, conditional)
+       1b. Next behavioral sequence (k=3, k=5)
+    2. Query imminence (15s, 30s, 45s, 60s)
+    3. Query with no effort (binary)
 
   Ablation: Raw telemetry → +Observable metrics → +Behavioral sequences
   Baselines: Majority, LogReg, RF{', XGBoost' if HAS_XGBOOST else ''}{', LSTM' if HAS_TORCH else ''}
