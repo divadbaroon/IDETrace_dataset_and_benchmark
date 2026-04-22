@@ -16,8 +16,8 @@ Pipeline:
         → observable_metrics/queries.csv          (per-query features)
 """
 
-import sys
 import os
+import sys
 import json
 import yaml
 import argparse
@@ -29,6 +29,7 @@ DATASET_DIR = os.path.join(ROOT_DIR, 'dataset')
 MANIFEST_PATH = os.path.join(ROOT_DIR, 'manifest.yaml')
 
 from behavioral_classifier.auto_segmenter import auto_segment_events
+
 
 # ── Event types ───────────────────────────────────────────────
 
@@ -57,6 +58,7 @@ def load_manifest():
     with open(MANIFEST_PATH) as f:
         return yaml.safe_load(f)
 
+
 def load_raw(path):
     """Load raw telemetry JSON into a tidy DataFrame."""
     with open(path, 'r', encoding='utf-8') as f:
@@ -66,12 +68,20 @@ def load_raw(path):
     for sid, sdata in raw.items():
         for ev in sdata.get('events', []):
             payload = ev.get('payload', {}) or {}
+            text_len = 0
+            if isinstance(payload, dict):
+                # Extract text length from chat events
+                text = payload.get('text') or payload.get('content') or payload.get('message') or ''
+                text_len = len(text) if text else (payload.get('length', 0) or 0)
+
             rows.append({
                 'student_id':        str(sid),
                 'timestamp_ms':      ev.get('timestamp'),
                 'type':              ev.get('type'),
                 'test_passed_count': payload.get('passed_count') if isinstance(payload, dict) else None,
                 'test_total_count':  payload.get('total_tests') if isinstance(payload, dict) else None,
+                'payload_text_len':  text_len,
+                'payload_visible':   payload.get('visible') if isinstance(payload, dict) else None,
             })
 
     df = pd.DataFrame(rows)
@@ -279,9 +289,17 @@ def generate_windows(df, seg_df, out_path):
                 win_end_ms = (we - t0) * 1000
                 future_segs = student_segs[student_segs['start_time_ms'] >= win_end_ms]
                 if len(future_segs) > 0:
-                    f['label_next_state'] = future_segs.iloc[0]['behavioral_state']
+                    next_seg = future_segs.iloc[0]
+                    f['label_next_state'] = next_seg['behavioral_state']
+
+                    # Thinking subtype (only when next state is thinking)
+                    if next_seg['behavioral_state'] == 'thinking' and next_seg.get('thinking_subtype'):
+                        f['label_next_thinking_subtype'] = next_seg['thinking_subtype']
+                    else:
+                        f['label_next_thinking_subtype'] = None
                 else:
                     f['label_next_state'] = None
+                    f['label_next_thinking_subtype'] = None
 
                 # Next sequence
                 for k in [3, 5]:
@@ -291,6 +309,7 @@ def generate_windows(df, seg_df, out_path):
                         f[f'label_next_{k}_states'] = None
             else:
                 f['label_next_state'] = None
+                f['label_next_thinking_subtype'] = None
                 for k in [3, 5]:
                     f[f'label_next_{k}_states'] = None
 
@@ -309,6 +328,174 @@ def generate_windows(df, seg_df, out_path):
 # ══════════════════════════════════════════════════════════════
 #  STEP 3: QUERY-LEVEL FEATURES
 # ══════════════════════════════════════════════════════════════
+
+def _compute_window_metrics(w, dur):
+    """Compute observable metrics for a window of events."""
+    f = {}
+
+    # ── Code activity ──
+    code = w[w['type'].isin(CODE_TYPES)]
+    code_types = w[w['type'] == 'CODE_TYPE']
+    code_deletes = w[w['type'].isin({'CODE_DELETE', 'CODE_DELETE_SELECTION'})]
+    code_pastes = w[w['type'] == 'CODE_PASTE']
+    code_copies = w[w['type'] == 'CODE_COPY']
+    code_undos = w[w['type'] == 'CODE_UNDO']
+
+    f['code_edits'] = len(code)
+    f['code_edit_rate'] = round(len(code) / max(0.1, dur), 4)
+    f['chars_inserted'] = len(code_types)  # proxy: 1 keystroke ≈ 1 char
+    f['chars_deleted'] = len(code_deletes)
+    f['code_deletes'] = len(code_deletes)
+    f['net_code_growth'] = len(code_types) + len(code_pastes) - len(code_deletes)
+    f['delete_type_ratio'] = round(len(code_deletes) / max(1, len(code)), 4)
+    f['code_pastes'] = len(code_pastes)
+    f['code_copies'] = len(code_copies)
+    f['code_undos'] = len(code_undos)
+
+    # ── Terminal activity ──
+    runs = w[w['type'].isin(TERMINAL_TYPES)]
+    errs = w[w['type'].isin(ERROR_TYPES)]
+    f['terminal_runs'] = len(runs)
+    f['terminal_errors'] = len(errs)
+
+    # Max consecutive errors
+    max_consec = 0
+    consec = 0
+    for _, e in w.iterrows():
+        if e['type'] in ERROR_TYPES:
+            consec += 1
+            max_consec = max(max_consec, consec)
+        elif e['type'] in TERMINAL_TYPES:
+            consec = 0
+    f['max_consecutive_errors'] = max_consec
+
+    # Mean time between runs
+    run_times = runs['timestamp_s'].tolist()
+    if len(run_times) >= 2:
+        gaps = np.diff(run_times)
+        f['mean_time_between_runs_s'] = round(float(np.mean(gaps)), 2)
+    else:
+        f['mean_time_between_runs_s'] = 0
+
+    # ── Error recovery ──
+    error_self_fix = 0
+    error_ai_fix = 0
+    error_to_edit_times = []
+    error_reading_times = []
+
+    for _, err in errs.iterrows():
+        after = w[w['timestamp_s'] > err['timestamp_s']]
+        next_edit = after[after['type'].isin(CODE_TYPES)]
+        next_query = after[after['type'].isin(QUERY_TYPES)]
+        next_active = after[after['type'].isin(CODE_TYPES | TERMINAL_TYPES | QUERY_TYPES)]
+
+        # Error reading time: time to any next action
+        if len(next_active) > 0:
+            error_reading_times.append(next_active.iloc[0]['timestamp_s'] - err['timestamp_s'])
+
+        # Error to edit latency
+        if len(next_edit) > 0:
+            error_to_edit_times.append(next_edit.iloc[0]['timestamp_s'] - err['timestamp_s'])
+
+        if len(next_edit) > 0 and (len(next_query) == 0 or next_edit.iloc[0]['timestamp_s'] < next_query.iloc[0]['timestamp_s']):
+            error_self_fix += 1
+        elif len(next_query) > 0:
+            error_ai_fix += 1
+
+    f['error_self_fix'] = error_self_fix
+    f['error_ai_fix'] = error_ai_fix
+    f['error_reading_time_s'] = round(float(np.mean(error_reading_times)), 2) if error_reading_times else 0
+    f['error_to_edit_s'] = round(float(np.mean(error_to_edit_times)), 2) if error_to_edit_times else 0
+
+    # ── Failed test recovery ──
+    failed_tests = w[(w['type'] == 'TEST_CASE_RESULT')]
+    failed_test_count = 0
+    failed_test_self_fix = 0
+    failed_test_ai_fix = 0
+    failed_test_to_edit_times = []
+
+    for _, ft in failed_tests.iterrows():
+        if pd.notna(ft.get('test_passed_count')) and pd.notna(ft.get('test_total_count')):
+            if ft['test_passed_count'] < ft['test_total_count']:
+                failed_test_count += 1
+                after = w[w['timestamp_s'] > ft['timestamp_s']]
+                next_edit = after[after['type'].isin(CODE_TYPES)]
+                next_query = after[after['type'].isin(QUERY_TYPES)]
+
+                if len(next_edit) > 0:
+                    failed_test_to_edit_times.append(next_edit.iloc[0]['timestamp_s'] - ft['timestamp_s'])
+
+                if len(next_edit) > 0 and (len(next_query) == 0 or next_edit.iloc[0]['timestamp_s'] < next_query.iloc[0]['timestamp_s']):
+                    failed_test_self_fix += 1
+                elif len(next_query) > 0:
+                    failed_test_ai_fix += 1
+
+    f['failed_test_count'] = failed_test_count
+    f['failed_test_self_fix'] = failed_test_self_fix
+    f['failed_test_ai_fix'] = failed_test_ai_fix
+    f['failed_test_to_edit_s'] = round(float(np.mean(failed_test_to_edit_times)), 2) if failed_test_to_edit_times else 0
+
+    # ── Idle / thinking ──
+    active = w[~w['type'].isin(NOISE_TYPES)]
+    if len(active) >= 2:
+        ts = sorted(active['timestamp_s'].tolist())
+        gaps = np.diff(ts)
+        f['longest_idle_s'] = round(float(gaps.max()), 2)
+        idle_gaps = gaps[gaps >= MIN_IDLE_S]
+        f['thinking_time_s'] = round(float(idle_gaps.sum()), 2) if len(idle_gaps) > 0 else 0
+    else:
+        f['longest_idle_s'] = round(dur, 2)
+        f['thinking_time_s'] = round(dur, 2)
+
+    # ── Tab / visibility ──
+    tab_events = w[w['type'] == 'TAB_STATE']
+    f['tab_switches'] = len(tab_events)
+    tab_hidden_time = 0
+    tab_list = tab_events.index.tolist()
+    for ti in range(len(tab_list)):
+        row = w.loc[tab_list[ti]]
+        if row.get('payload_visible') == False and ti < len(tab_list) - 1:
+            next_tab = w.loc[tab_list[ti + 1]]
+            tab_hidden_time += next_tab['timestamp_s'] - row['timestamp_s']
+    f['tab_hidden_time_s'] = round(tab_hidden_time, 2)
+
+    f['duration_s'] = round(dur, 2)
+
+    return f
+
+
+def _compute_segment_features(student_segs, win_start_ms, win_end_ms, prefix=''):
+    """Compute behavioral time features from segments overlapping a window."""
+    f = {}
+    state_times = {'implementing': 0, 'debugging': 0, 'testing': 0, 'seekingHelp': 0, 'thinking': 0}
+    subtype_times = {'thinking-task': 0, 'thinking-llm': 0, 'thinking-error': 0, 'thinking-code': 0}
+
+    if len(student_segs) == 0:
+        for st in state_times:
+            f[f'{prefix}{st}_time_s'] = 0
+        for st in subtype_times:
+            f[f'{prefix}{st.replace("-", "_")}_s'] = 0
+        return f
+
+    for _, seg in student_segs.iterrows():
+        o_start = max(seg['start_time_ms'], win_start_ms)
+        o_end = min(seg['end_time_ms'], win_end_ms)
+        if o_end > o_start:
+            o_s = (o_end - o_start) / 1000
+            state = seg['behavioral_state']
+            if state in state_times:
+                state_times[state] += o_s
+            subtype = seg.get('thinking_subtype', '')
+            if subtype and subtype in subtype_times:
+                subtype_times[subtype] += o_s
+
+    for st, t in state_times.items():
+        f[f'{prefix}{st}_time_s'] = round(t, 2)
+    for st, t in subtype_times.items():
+        f[f'{prefix}{st.replace("-", "_")}_s'] = round(t, 2)
+
+    return f
+
 
 def generate_queries(df, seg_df, out_path):
     print("    [3/3] Generating query-level features...")
@@ -340,95 +527,77 @@ def generate_queries(df, seg_df, out_path):
 
         for qi, row_idx in enumerate(q_indices):
             q_ts = s.loc[row_idx]['timestamp_s']
+            is_first = qi == 0
+            is_last = qi == len(q_indices) - 1
 
-            # Window: from last AI response (or session start) to this query
+            # ── Window boundaries ──
             prior_resp = responses[responses['timestamp_s'] < q_ts]
             win_start = prior_resp['timestamp_s'].max() if len(prior_resp) > 0 else t0
+            has_prior_ai = len(prior_resp) > 0
             prev_q_ts = s.loc[q_indices[qi - 1]]['timestamp_s'] if qi > 0 else None
 
             w = s[(s['timestamp_s'] >= win_start) & (s['timestamp_s'] < q_ts)]
             dur = max(0.1, q_ts - win_start)
 
-            code = w[w['type'].isin(CODE_TYPES)]
-            runs = w[w['type'].isin(TERMINAL_TYPES)]
-            errs_w = w[w['type'].isin(ERROR_TYPES)]
+            # ── Pre-query observable metrics ──
+            pre = _compute_window_metrics(w, dur)
 
-            code_edits = len(code)
-            terminal_runs = len(runs)
-            terminal_errors = len(errs_w)
+            # ── Pre-query behavioral times from segments ──
+            pre_seg_start_ms = (win_start - t0) * 1000
+            pre_seg_end_ms = (q_ts - t0) * 1000
+            pre_behav = _compute_segment_features(student_segs, pre_seg_start_ms, pre_seg_end_ms, prefix='')
 
-            # Idle
-            active = w[~w['type'].isin(NOISE_TYPES)]
-            if len(active) >= 2:
-                ts = sorted(active['timestamp_s'].tolist())
-                gaps = np.diff(ts)
-                longest_idle = round(float(gaps.max()), 2)
-                idle_gaps = gaps[gaps >= MIN_IDLE_S]
-                thinking_time = round(float(idle_gaps.sum()), 2) if len(idle_gaps) > 0 else 0
-            else:
-                longest_idle = round(dur, 2)
-                thinking_time = round(dur, 2)
+            # ── Response reading time + chat-to-code latency ──
+            response_reading_time = 0
+            chat_to_code_latency = 0
+            if has_prior_ai:
+                last_resp_ts = prior_resp['timestamp_s'].max()
+                post_resp = w[w['timestamp_s'] > last_resp_ts]
+                post_resp_active = post_resp[post_resp['type'].isin(CODE_TYPES | TERMINAL_TYPES)]
+                if len(post_resp_active) > 0:
+                    response_reading_time = round(post_resp_active.iloc[0]['timestamp_s'] - last_resp_ts, 2)
+                else:
+                    response_reading_time = round(q_ts - last_resp_ts, 2)
+                post_resp_code = post_resp[post_resp['type'].isin(CODE_TYPES)]
+                if len(post_resp_code) > 0:
+                    chat_to_code_latency = round(post_resp_code.iloc[0]['timestamp_s'] - last_resp_ts, 2)
 
-            # Error self-fix in window
-            error_self_fix = 0
-            error_ai_fix = 0
-            for _, err in errs_w.iterrows():
-                after = w[w['timestamp_s'] > err['timestamp_s']]
-                next_edit = after[after['type'].isin(CODE_TYPES)]
-                next_q = after[after['type'].isin(QUERY_TYPES)]
-                if len(next_edit) > 0 and (len(next_q) == 0 or next_edit.iloc[0]['timestamp_s'] < next_q.iloc[0]['timestamp_s']):
-                    error_self_fix += 1
-                elif len(next_q) > 0:
-                    error_ai_fix += 1
+            # ── Query content metrics ──
+            query_text_len = s.loc[row_idx].get('payload_text_len', 0) or 0
 
-            # Max consecutive errors
-            max_consec = 0
-            consec = 0
-            for _, e in w.iterrows():
-                if e['type'] in ERROR_TYPES:
-                    consec += 1
-                    max_consec = max(max_consec, consec)
-                elif e['type'] in TERMINAL_TYPES:
-                    consec = 0
+            # AI response for this query
+            post_responses = responses[responses['timestamp_s'] > q_ts]
+            ai_response_len = 0
+            ai_resp_ts = q_ts + 2  # default
+            if len(post_responses) > 0:
+                ai_resp_row = post_responses.iloc[0]
+                ai_response_len = ai_resp_row.get('payload_text_len', 0) or 0
+                ai_resp_ts = ai_resp_row['timestamp_s']
 
-            # Behavioral times from segments
-            impl_time = 0
-            debug_time = 0
-            test_time = 0
-            seek_time = 0
-
-            if len(student_segs) > 0:
-                win_start_ms = (win_start - t0) * 1000
-                win_end_ms = (q_ts - t0) * 1000
-                for _, seg in student_segs.iterrows():
-                    o_start = max(seg['start_time_ms'], win_start_ms)
-                    o_end = min(seg['end_time_ms'], win_end_ms)
-                    if o_end > o_start:
-                        o_s = (o_end - o_start) / 1000
-                        st = seg['behavioral_state']
-                        if st == 'implementing': impl_time += o_s
-                        elif st == 'debugging':  debug_time += o_s
-                        elif st == 'testing':    test_time += o_s
-                        elif st == 'seekingHelp': seek_time += o_s
-
-            # Post-query window
-            next_q_ts = s.loc[q_indices[qi + 1]]['timestamp_s'] if qi < len(q_indices) - 1 else t1
-            post = s[(s['timestamp_s'] > q_ts) & (s['timestamp_s'] < next_q_ts)]
-            post_code_edits = len(post[post['type'].isin(CODE_TYPES)])
-            post_terminal_runs = len(post[post['type'].isin(TERMINAL_TYPES)])
-            post_terminal_errors = len(post[post['type'].isin(ERROR_TYPES)])
-
-            # Test state at query
+            # ── Test state at query ──
             tests_before = tests[tests['timestamp_s'] <= q_ts]
             lt = tests_before.iloc[-1] if len(tests_before) > 0 else None
             test_passed = int(lt['test_passed_count']) if lt is not None and pd.notna(lt.get('test_passed_count')) else 0
             test_total = int(lt['test_total_count']) if lt is not None and pd.notna(lt.get('test_total_count')) else 0
 
+            # ── Post-query window ──
+            next_q_ts = s.loc[q_indices[qi + 1]]['timestamp_s'] if qi < len(q_indices) - 1 else t1
+            post_win_start = ai_resp_ts
+            post = s[(s['timestamp_s'] > post_win_start) & (s['timestamp_s'] < next_q_ts)]
+            post_dur = max(0.1, next_q_ts - post_win_start)
+
+            # Post-query observable metrics
+            post_m = _compute_window_metrics(post, post_dur)
+
+            # Post-query behavioral times from segments
+            post_seg_start_ms = (post_win_start - t0) * 1000
+            post_seg_end_ms = (next_q_ts - t0) * 1000
+            post_behav = _compute_segment_features(student_segs, post_seg_start_ms, post_seg_end_ms, prefix='post_')
+
             # ── Label: Query with no effort ──
             label_no_effort = None
             if qi < len(q_indices) - 1:
-                next_q_row = s.loc[q_indices[qi + 1]]
-                next_q_ts_val = next_q_row['timestamp_s']
+                next_q_ts_val = s.loc[q_indices[qi + 1]]['timestamp_s']
                 next_resp = responses[responses['timestamp_s'] > q_ts]
                 next_win_start = next_resp['timestamp_s'].min() if len(next_resp) > 0 else q_ts
                 next_win = s[(s['timestamp_s'] >= next_win_start) & (s['timestamp_s'] < next_q_ts_val)]
@@ -436,38 +605,90 @@ def generate_queries(df, seg_df, out_path):
                 next_runs = len(next_win[next_win['type'].isin(TERMINAL_TYPES)])
                 label_no_effort = 1 if next_code == 0 and next_runs == 0 else 0
 
+            # ── Assemble row ──
             rows.append({
+                # Identity & position
                 'student_id': sid,
                 'query_index': qi + 1,
                 'total_queries': len(q_indices),
-                'is_first_query': 1 if qi == 0 else 0,
+                'is_first_query': 1 if is_first else 0,
+                # Timing
                 'time_since_session_start_s': round(q_ts - t0, 2),
                 'time_since_last_query_s': round(q_ts - prev_q_ts, 2) if prev_q_ts else 0,
                 'pre_duration_s': round(dur, 2),
-                # Raw
-                'pre_code_edits': code_edits,
-                'pre_terminal_runs': terminal_runs,
-                'pre_terminal_errors': terminal_errors,
-                'pre_code_edit_rate': round(code_edits / dur, 4),
-                'thinking_time_s': thinking_time,
-                'pre_longest_idle_s': longest_idle,
-                'pre_max_consecutive_errors': max_consec,
-                'pre_error_self_fix': error_self_fix,
-                'pre_error_ai_fix': error_ai_fix,
-                # Behavioral times
-                'implementing_time_s': round(impl_time, 2),
-                'debugging_time_s': round(debug_time, 2),
-                'testing_time_s': round(test_time, 2),
-                'seeking_help_time_s': round(seek_time, 2),
-                # Test state
+                # Pre-query: code activity
+                'pre_code_edits': pre['code_edits'],
+                'pre_code_edit_rate': pre['code_edit_rate'],
+                'pre_chars_inserted': pre['chars_inserted'],
+                'pre_chars_deleted': pre['chars_deleted'],
+                'pre_code_deletes': pre['code_deletes'],
+                'pre_net_code_growth': pre['net_code_growth'],
+                'pre_delete_type_ratio': pre['delete_type_ratio'],
+                # Pre-query: terminal
+                'pre_terminal_runs': pre['terminal_runs'],
+                'pre_terminal_errors': pre['terminal_errors'],
+                'pre_max_consecutive_errors': pre['max_consecutive_errors'],
+                'pre_mean_time_between_runs_s': pre['mean_time_between_runs_s'],
+                # Pre-query: error recovery
+                'pre_error_self_fix': pre['error_self_fix'],
+                'pre_error_ai_fix': pre['error_ai_fix'],
+                'pre_error_reading_time_s': pre['error_reading_time_s'],
+                'pre_error_to_edit_s': pre['error_to_edit_s'],
+                'pre_failed_test_count': pre['failed_test_count'],
+                'pre_failed_test_self_fix': pre['failed_test_self_fix'],
+                'pre_failed_test_ai_fix': pre['failed_test_ai_fix'],
+                'pre_failed_test_to_edit_s': pre['failed_test_to_edit_s'],
+                # Pre-query: time & idle
+                'pre_longest_idle_s': pre['longest_idle_s'],
+                'thinking_time_s': pre['thinking_time_s'],
+                'pre_tab_switches': pre['tab_switches'],
+                'pre_tab_hidden_time_s': pre['tab_hidden_time_s'],
+                # Pre-query: chat behavior
+                'pre_response_reading_time_s': response_reading_time,
+                'pre_chat_to_code_latency_s': chat_to_code_latency,
+                # Pre-query: time in regions (from segments)
+                'pre_time_in_editor_s': pre_behav.get('implementing_time_s', 0),
+                'pre_time_in_terminal_s': pre_behav.get('testing_time_s', 0) + pre_behav.get('debugging_time_s', 0),
+                'pre_time_in_chat_s': pre_behav.get('seekingHelp_time_s', 0),
+                'pre_time_in_task_s': pre_behav.get('thinking_task_s', 0),
+                'pre_time_in_tests_s': pre_behav.get('testing_time_s', 0),
+                # Pre-query: behavioral state times
+                'implementing_time_s': pre_behav.get('implementing_time_s', 0),
+                'debugging_time_s': pre_behav.get('debugging_time_s', 0),
+                'testing_time_s': pre_behav.get('testing_time_s', 0),
+                'seeking_help_time_s': pre_behav.get('seekingHelp_time_s', 0),
+                # Pre-query: thinking subtypes
+                'thinking_task_s': pre_behav.get('thinking_task_s', 0),
+                'thinking_llm_s': pre_behav.get('thinking_llm_s', 0),
+                'thinking_error_s': pre_behav.get('thinking_error_s', 0),
+                'thinking_code_s': pre_behav.get('thinking_code_s', 0),
+                # Query content
+                'query_length_chars': query_text_len,
+                'ai_response_length_chars': ai_response_len,
+                # Test state at query
                 'test_passed_at_query': test_passed,
                 'test_total_at_query': test_total,
-                # Post-query
-                'post_code_edits': post_code_edits,
-                'post_terminal_runs': post_terminal_runs,
-                'post_terminal_errors': post_terminal_errors,
+                # Post-response: behavioral state times
+                'post_response_implementing_s': post_behav.get('post_implementing_time_s', 0),
+                'post_response_debugging_s': post_behav.get('post_debugging_time_s', 0),
+                'post_response_thinking_s': post_behav.get('post_thinking_time_s', 0),
+                'post_response_seeking_help_s': post_behav.get('post_seekingHelp_time_s', 0),
+                'post_response_testing_s': post_behav.get('post_testing_time_s', 0),
+                # Post-response: thinking subtypes
+                'post_thinking_task_s': post_behav.get('post_thinking_task_s', 0),
+                'post_thinking_llm_s': post_behav.get('post_thinking_llm_s', 0),
+                'post_thinking_error_s': post_behav.get('post_thinking_error_s', 0),
+                'post_thinking_code_s': post_behav.get('post_thinking_code_s', 0),
+                # Post-response: observable metrics
+                'post_code_edits': post_m['code_edits'],
+                'post_code_edit_rate': post_m['code_edit_rate'],
+                'post_terminal_runs': post_m['terminal_runs'],
+                'post_terminal_errors': post_m['terminal_errors'],
+                'post_error_self_fix': post_m['error_self_fix'],
                 # Outcome
                 'task_completed': task_completed,
+                'final_test_passed': final_passed,
+                'final_test_total': final_total,
                 'session_duration_s': round(t1 - t0, 2),
                 # Label
                 'label_query_no_effort': label_no_effort,
