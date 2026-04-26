@@ -284,6 +284,13 @@ def generate_windows(df, seg_df, out_path):
             for horizon in [5, 10, 15, 30, 45, 60]:
                 f[f'label_query_imminence_{horizon}s'] = int(any(we <= qt <= we + horizon for qt in q_times))
 
+            # Time to next query (regression label)
+            future_q = [qt for qt in q_times if qt >= we]
+            if future_q:
+                f['label_time_to_next_query_s'] = round(min(future_q) - we, 2)
+            else:
+                f['label_time_to_next_query_s'] = None
+
             # Next behavioral state
             if len(student_segs) > 0:
                 win_end_ms = (we - t0) * 1000

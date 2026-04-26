@@ -27,20 +27,21 @@ import warnings
 from collections import Counter
 
 from sklearn.base import clone
-from sklearn.dummy import DummyClassifier
-from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.dummy import DummyClassifier, DummyRegressor
+from sklearn.linear_model import LogisticRegression, LinearRegression
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import (
     roc_auc_score, f1_score, accuracy_score,
     classification_report,
+    mean_absolute_error, mean_squared_error, r2_score,
 )
 
 warnings.filterwarnings('ignore')
 
 # Optional imports
 try:
-    from xgboost import XGBClassifier
+    from xgboost import XGBClassifier, XGBRegressor
     HAS_XGBOOST = True
 except ImportError:
     HAS_XGBOOST = False
@@ -493,6 +494,87 @@ def run_ablation(df_train, df_test, task_name, target_col, feature_layers,
 
 
 # ══════════════════════════════════════════════════════════════
+#  REGRESSION RUNNER (time-to-next-query)
+# ══════════════════════════════════════════════════════════════
+
+def get_regression_baselines():
+    baselines = {
+        'Mean': DummyRegressor(strategy='mean'),
+        'LinearReg': LinearRegression(),
+        'RandomForest': RandomForestRegressor(n_estimators=300, random_state=42, n_jobs=-1),
+    }
+    if HAS_XGBOOST:
+        baselines['XGBoost'] = XGBRegressor(
+            n_estimators=300, max_depth=6, learning_rate=0.1,
+            random_state=42, verbosity=0,
+        )
+    return baselines
+
+
+def evaluate_regression(model, X_train, y_train, X_test, y_test):
+    """Train regression model and return metrics."""
+    scaler = StandardScaler()
+    Xtr = scaler.fit_transform(X_train)
+    Xte = scaler.transform(X_test)
+
+    model.fit(Xtr, y_train)
+    y_pred = model.predict(Xte)
+
+    # Clip predictions to non-negative
+    y_pred = np.maximum(y_pred, 0)
+
+    return {
+        'mae': round(mean_absolute_error(y_test, y_pred), 2),
+        'rmse': round(np.sqrt(mean_squared_error(y_test, y_pred)), 2),
+        'r2': round(r2_score(y_test, y_pred), 4),
+    }
+
+
+def run_regression(df_train, df_test, task_name, target_col, feature_layers,
+                   seg_train=None, seg_test=None, time_col='window_end_s',
+                   max_target=300):
+    """Run regression baselines across feature layers."""
+    train = df_train.dropna(subset=[target_col]).copy()
+    test = df_test.dropna(subset=[target_col]).copy()
+
+    # Cap target to max_target seconds to reduce outlier influence
+    train = train[train[target_col] <= max_target]
+    test = test[test[target_col] <= max_target]
+
+    y_train = train[target_col].astype(float)
+    y_test = test[target_col].astype(float)
+
+    print(f"  Train: {len(y_train)} | Test: {len(y_test)}")
+    print(f"  Target stats — Train: mean={y_train.mean():.1f}s, median={y_train.median():.1f}s | Test: mean={y_test.mean():.1f}s, median={y_test.median():.1f}s")
+
+    # Header
+    print(f"\n  {'Model':<25s}", end='')
+    for layer_name in feature_layers:
+        print(f"  {layer_name:>22s}", end='')
+    print()
+    print(f"  {'-' * (25 + 24 * len(feature_layers))}")
+
+    baselines = get_regression_baselines()
+    all_results = {}
+    layer_names = list(feature_layers.keys())
+    last_layer = layer_names[-1]
+
+    for model_name, model in baselines.items():
+        print(f"  {model_name:<25s}", end='')
+        all_results[model_name] = {}
+        for layer_name, cols in feature_layers.items():
+            avail = [c for c in cols if c in train.columns]
+            X_train = train[avail].fillna(0)
+            X_test = test[avail].fillna(0)
+            res = evaluate_regression(clone(model), X_train, y_train, X_test, y_test)
+            all_results[model_name][layer_name] = res
+            print(f"  {res['mae']:>6.1f} / {res['r2']:>.3f}", end='')
+        print()
+
+    return all_results
+
+
+# ══════════════════════════════════════════════════════════════
 #  SEQUENCE PREDICTION
 # ══════════════════════════════════════════════════════════════
 
@@ -763,6 +845,24 @@ def main():
                 results[f'query_imminence_{horizon}s'] = res
 
     # ══════════════════════════════════════════════════════════
+    #  TASK 2b: TIME TO NEXT QUERY (regression)
+    # ══════════════════════════════════════════════════════════
+
+    if tasks.get('query_imminence') and 'label_time_to_next_query_s' in train_windows.columns:
+        print("\n" + "=" * 60)
+        print("  TASK 2b: TIME TO NEXT QUERY (regression)")
+        print("=" * 60)
+
+        reg_results = run_regression(
+            train_windows, test_windows,
+            'Time to next query', 'label_time_to_next_query_s',
+            window_layers,
+            seg_train=train_segments, seg_test=test_segments,
+        )
+        if reg_results:
+            results['time_to_next_query'] = reg_results
+
+    # ══════════════════════════════════════════════════════════
     #  TASK 3: QUERY WITH NO EFFORT
     # ══════════════════════════════════════════════════════════
 
@@ -838,6 +938,7 @@ def main():
        1a. Thinking subtype (4-class, conditional)
        1b. Next behavioral sequence (k=3, k=5)
     2. Query imminence (5s, 10s, 15s, 30s, 45s, 60s)
+       2b. Time to next query (regression)
     3. Query with no effort (binary)
 
   Ablation: Raw telemetry → +Observable metrics → +Behavioral sequences
