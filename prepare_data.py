@@ -281,7 +281,7 @@ def generate_windows(df, seg_df, out_path):
             # Query imminence
             all_q = s[s['type'].isin(QUERY_TYPES)]
             q_times = all_q['timestamp_s'].tolist()
-            for horizon in [15, 30, 45, 60]:
+            for horizon in [5, 10, 15, 30, 45, 60]:
                 f[f'label_query_imminence_{horizon}s'] = int(any(we <= qt <= we + horizon for qt in q_times))
 
             # Next behavioral state
