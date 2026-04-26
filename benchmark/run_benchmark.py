@@ -853,14 +853,53 @@ def main():
         print("  TASK 2b: TIME TO NEXT QUERY (regression)")
         print("=" * 60)
 
+        # Full regression (all windows, capped at 300s)
+        print("\n  --- All windows (capped at 300s) ---")
         reg_results = run_regression(
             train_windows, test_windows,
-            'Time to next query', 'label_time_to_next_query_s',
-            window_layers,
-            seg_train=train_segments, seg_test=test_segments,
+            'Time to next query (all)', 'label_time_to_next_query_s',
+            window_layers, max_target=300,
         )
         if reg_results:
-            results['time_to_next_query'] = reg_results
+            results['time_to_next_query_all'] = reg_results
+
+        # Filtered regression — only windows within 60s of a query
+        print("\n  --- Imminent windows only (within 60s of query) ---")
+        train_imminent = train_windows[
+            (train_windows['label_time_to_next_query_s'].notna()) &
+            (train_windows['label_time_to_next_query_s'] <= 60)
+        ].copy()
+        test_imminent = test_windows[
+            (test_windows['label_time_to_next_query_s'].notna()) &
+            (test_windows['label_time_to_next_query_s'] <= 60)
+        ].copy()
+
+        reg_results_60 = run_regression(
+            train_imminent, test_imminent,
+            'Time to next query (≤60s)', 'label_time_to_next_query_s',
+            window_layers, max_target=60,
+        )
+        if reg_results_60:
+            results['time_to_next_query_imminent'] = reg_results_60
+
+        # Filtered regression — only windows within 30s of a query
+        print("\n  --- Imminent windows only (within 30s of query) ---")
+        train_imminent_30 = train_windows[
+            (train_windows['label_time_to_next_query_s'].notna()) &
+            (train_windows['label_time_to_next_query_s'] <= 30)
+        ].copy()
+        test_imminent_30 = test_windows[
+            (test_windows['label_time_to_next_query_s'].notna()) &
+            (test_windows['label_time_to_next_query_s'] <= 30)
+        ].copy()
+
+        reg_results_30 = run_regression(
+            train_imminent_30, test_imminent_30,
+            'Time to next query (≤30s)', 'label_time_to_next_query_s',
+            window_layers, max_target=30,
+        )
+        if reg_results_30:
+            results['time_to_next_query_30s'] = reg_results_30
 
     # ══════════════════════════════════════════════════════════
     #  TASK 3: QUERY WITH NO EFFORT
