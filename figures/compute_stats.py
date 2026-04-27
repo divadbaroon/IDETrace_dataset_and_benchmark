@@ -3,6 +3,7 @@ import json
 import sys
 import os
 import numpy as np
+import yaml
 
 
 def compute_stats(json_path, segments_path=None):
@@ -146,9 +147,17 @@ def generate_stats_json(deployments, output_path):
     """Compute stats for all deployments and save as JSON."""
     all_stats = {}
     for name, paths in deployments.items():
-        stats = compute_stats(paths['json'], paths.get('segments'))
+        json_path = paths['json']
+        if not os.path.exists(json_path):
+            print(f"  WARNING: {json_path} not found, skipping {name}")
+            continue
+        stats = compute_stats(json_path, paths.get('segments'))
         all_stats[name] = stats
         print_stats(name, stats)
+
+    if not all_stats:
+        print("  ERROR: No deployment data found.")
+        return {}
 
     # Combined
     combined = {
@@ -190,21 +199,21 @@ def generate_stats_json(deployments, output_path):
 
 
 if __name__ == '__main__':
-    # Default paths for the repo structure
-    # Root is one level up from figures/
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     dataset_dir = os.path.join(root, 'dataset')
+    manifest_path = os.path.join(root, 'manifest.yaml')
 
-    deployments = {
-        'Deployment 1 (train)': {
-            'json': os.path.join(dataset_dir, 'raw_telemetry', 'deployment_1.json'),
-            'segments': os.path.join(dataset_dir, 'behavioral_sequences', 'deployment_1_segments.csv'),
-        },
-        'Deployment 2 (test)': {
-            'json': os.path.join(dataset_dir, 'raw_telemetry', 'deployment_2.json'),
-            'segments': os.path.join(dataset_dir, 'behavioral_sequences', 'deployment_2_segments.csv'),
-        },
-    }
+    with open(manifest_path) as f:
+        manifest = yaml.safe_load(f)
+
+    deployments = {}
+    for name, config in manifest['deployments'].items():
+        if not config.get('enabled', True):
+            continue
+        deployments[name] = {
+            'json': os.path.join(dataset_dir, config['raw_telemetry']),
+            'segments': os.path.join(dataset_dir, 'behavioral_sequences', f'{name}_segments.csv'),
+        }
 
     output_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dataset_stats.json')
     os.makedirs(os.path.dirname(output_path), exist_ok=True)

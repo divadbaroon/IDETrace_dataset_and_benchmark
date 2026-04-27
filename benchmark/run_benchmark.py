@@ -895,6 +895,25 @@ def main():
     print(f"  Test:  {len(test_windows):,} windows, {test_windows['student_id'].nunique()} students")
     print(f"  Segments: {len(train_segments):,} train, {len(test_segments):,} test")
 
+    # Load dataset stats if available
+    stats_path = os.path.join(ROOT_DIR, 'figures', 'dataset_stats.json')
+    if os.path.exists(stats_path):
+        with open(stats_path) as f:
+            ds_stats = json.load(f)
+        combined = ds_stats.get('combined', {})
+        print(f"\n  Dataset overview:")
+        print(f"    Students:           {combined.get('students', '?')}")
+        print(f"    Students using AI:  {combined.get('students_with_ai', '?')}")
+        print(f"    Tasks completed:    {combined.get('tasks_completed', '?')}")
+        print(f"    Total minutes:      {combined.get('total_minutes', '?')}")
+        print(f"    Raw events:         {combined.get('total_events', 0):,}")
+        print(f"    Events (no mouse):  {combined.get('events_no_mouse', 0):,}")
+        print(f"    Code edits:         {combined.get('total_code_edits', 0):,}")
+        print(f"    Terminal runs:      {combined.get('total_terminal_runs', 0):,}")
+        print(f"    Terminal errors:    {combined.get('total_errors', 0):,}")
+        print(f"    AI queries:         {combined.get('total_queries', 0):,}")
+        print(f"    Segments:           {combined.get('total_segments', 0):,}")
+
     # Window-level feature layers
     window_layers = {
         'Raw telemetry':        [c for c in LAYER_1_FEATURES if c in train_windows.columns],
