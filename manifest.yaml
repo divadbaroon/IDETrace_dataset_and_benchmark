@@ -28,7 +28,7 @@ deployments:
   deployment_6:
     raw_telemetry: raw_telemetry/deployment_6.json
     split: test
-    enabled: false
+    enabled: true
 
 tasks:
   next_behavioral_state: true
