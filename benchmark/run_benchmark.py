@@ -207,10 +207,10 @@ def evaluate(model, X_train, y_train, X_test, y_test, task_type='binary'):
         results['auc'] = 0.5
 
     if task_type == 'multiclass':
-        present_states = sorted(y_test.unique())
-        target_names = [STATE_NAMES[i] if i < len(STATE_NAMES) else str(i) for i in present_states]
+        all_labels = sorted(set(y_test.unique()) | set(y_pred))
+        target_names = [STATE_NAMES[i] if i < len(STATE_NAMES) else str(i) for i in all_labels]
         results['per_class'] = classification_report(
-            y_test, y_pred, target_names=target_names,
+            y_test, y_pred, labels=all_labels, target_names=target_names,
             output_dict=True, zero_division=0,
         )
 
