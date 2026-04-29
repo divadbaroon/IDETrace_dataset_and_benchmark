@@ -24,6 +24,7 @@ Run all three back to back:
 import argparse
 import json
 import os
+import re
 import time
 import yaml
 import numpy as np
@@ -131,11 +132,15 @@ def call_llm(client, prompt, model, max_retries=3):
     """Call Ollama API with retries."""
     for attempt in range(max_retries):
         try:
+            messages = [
+                {"role": "system", "content": "Respond with ONLY the requested value. No reasoning, no explanation, no extra text."},
+                {"role": "user", "content": prompt}
+            ]
             response = client.chat.completions.create(
                 model=model,
-                messages=[{"role": "user", "content": prompt}],
+                messages=messages,
                 temperature=0.0,
-                max_tokens=20,
+                max_tokens=50,
             )
             return response.choices[0].message.content.strip()
         except Exception as e:
@@ -148,12 +153,17 @@ def call_llm(client, prompt, model, max_retries=3):
                 return None
 
 
+def strip_think_tags(text):
+    """Remove <think>...</think> blocks from model output."""
+    return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
+
+
 def parse_probability(response_text):
     """Extract a probability value from LLM response, handling verbose outputs."""
     if response_text is None:
         return None
 
-    text = response_text.strip()
+    text = strip_think_tags(response_text)
 
     # Try direct float parse first
     try:
@@ -163,8 +173,16 @@ def parse_probability(response_text):
         pass
 
     # Try to find a number in the response
-    import re
     matches = re.findall(r'(?<!\d)([01]\.?\d*)', text)
+    if matches:
+        try:
+            val = float(matches[0])
+            return max(0.0, min(1.0, val))
+        except ValueError:
+            pass
+
+    # Try to find any decimal number
+    matches = re.findall(r'(\d+\.?\d*)', text)
     if matches:
         try:
             val = float(matches[0])
@@ -180,15 +198,16 @@ def parse_state(response_text):
     if response_text is None:
         return None
 
-    STATE_MAP = {'thinking': 0, 'implementing': 1, 'debugging': 2, 'seekinghelp': 3, 'testing': 4}
-    text = response_text.strip().lower()
+    text = strip_think_tags(response_text).lower()
+
+    STATE_NAMES = ['thinking', 'implementing', 'debugging', 'seekinghelp', 'testing']
 
     # Direct match
-    if text in STATE_MAP:
+    if text in STATE_NAMES:
         return text
 
     # Search for state name in response
-    for state_name in STATE_MAP:
+    for state_name in STATE_NAMES:
         if state_name in text:
             return state_name
 
@@ -288,7 +307,9 @@ def run_imminence_task(client, df, model, sample_size):
 
     for i, (idx, row) in enumerate(sample.iterrows()):
         if (i + 1) % 100 == 0:
-            print(f"  Processing {i + 1}/{len(sample)}...")
+            valid = len(predictions)
+            err_pct = (errors / (i + 1)) * 100
+            print(f"  Processing {i + 1}/{len(sample)}... ({valid} valid, {errors} errors [{err_pct:.0f}%])")
 
         prompt = build_imminence_prompt(row)
         response = call_llm(client, prompt, model)
@@ -296,6 +317,8 @@ def run_imminence_task(client, df, model, sample_size):
 
         if prob is None:
             errors += 1
+            if errors <= 3:
+                print(f"    Could not parse: '{response}'")
             continue
 
         predictions.append(prob)
@@ -346,7 +369,9 @@ def run_next_state_task(client, df, model, sample_size):
 
     for i, (idx, row) in enumerate(sample.iterrows()):
         if (i + 1) % 100 == 0:
-            print(f"  Processing {i + 1}/{len(sample)}...")
+            valid = len(predictions)
+            err_pct = (errors / (i + 1)) * 100
+            print(f"  Processing {i + 1}/{len(sample)}... ({valid} valid, {errors} errors [{err_pct:.0f}%])")
 
         prompt = build_next_state_prompt(row)
         response = call_llm(client, prompt, model)
@@ -354,6 +379,8 @@ def run_next_state_task(client, df, model, sample_size):
 
         if matched_state is None:
             errors += 1
+            if errors <= 3:
+                print(f"    Could not parse: '{response}'")
             continue
 
         predictions.append(STATE_MAP[matched_state])
@@ -430,7 +457,9 @@ def run_no_effort_task(client, df_queries, model):
 
     for i, (idx, row) in enumerate(df_clean.iterrows()):
         if (i + 1) % 50 == 0:
-            print(f"  Processing {i + 1}/{len(df_clean)}...")
+            valid = len(predictions)
+            err_pct = (errors / (i + 1)) * 100
+            print(f"  Processing {i + 1}/{len(df_clean)}... ({valid} valid, {errors} errors [{err_pct:.0f}%])")
 
         prompt = build_no_effort_prompt(row)
         response = call_llm(client, prompt, model)
@@ -438,6 +467,8 @@ def run_no_effort_task(client, df_queries, model):
 
         if prob is None:
             errors += 1
+            if errors <= 3:
+                print(f"    Could not parse: '{response}'")
             continue
 
         predictions.append(prob)
