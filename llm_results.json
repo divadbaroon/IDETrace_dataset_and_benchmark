@@ -13,26 +13,26 @@
   "results": [
     {
       "task": "query_imminence_30s",
-      "auc": 0.778,
-      "f1": 0.487,
+      "auc": 0.794,
+      "f1": 0.507,
       "n_samples": 999,
       "n_errors": 0,
       "pos_rate": 0.045
     },
     {
       "task": "next_behavioral_state",
-      "auc": 0.521,
-      "f1": 0.216,
-      "n_samples": 997,
+      "auc": 0.525,
+      "f1": 0.224,
+      "n_samples": 998,
       "n_errors": 0
     },
     {
       "task": "query_no_effort",
-      "auc": 0.583,
-      "f1": 0.29,
-      "n_samples": 930,
+      "auc": 0.585,
+      "f1": 0.287,
+      "n_samples": 971,
       "n_errors": 0,
-      "pos_rate": 0.409
+      "pos_rate": 0.403
     }
   ]
 }
