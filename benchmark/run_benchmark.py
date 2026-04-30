@@ -1118,6 +1118,24 @@ def main():
             results['query_with_no_effort'] = res
 
     # ══════════════════════════════════════════════════════════
+    #  TASK 3b: NEXT QUERY NO EFFORT (predictive, window-level)
+    # ══════════════════════════════════════════════════════════
+
+    if tasks.get('query_with_no_effort') and 'label_next_query_no_effort' in train_windows.columns:
+        print("\n" + "=" * 60)
+        print("  TASK 3b: NEXT QUERY NO EFFORT (predictive)")
+        print("=" * 60)
+
+        res = run_ablation(
+            train_windows, test_windows,
+            'Next query no effort', 'label_next_query_no_effort',
+            window_layers, task_type='binary',
+            seg_train=train_segments, seg_test=test_segments,
+        )
+        if res:
+            results['next_query_no_effort'] = res
+
+    # ══════════════════════════════════════════════════════════
     #  TASK 4: HIGH DELEGATION QUERY (binary)
     # ══════════════════════════════════════════════════════════
 
@@ -1217,6 +1235,9 @@ def main():
         train_think = train_windows[train_windows['label_next_thinking_subtype'].notna()]
         if len(train_think) > 0:
             print_importance(train_think, 'label_next_thinking_subtype', 'Thinking subtype', LAYER_3_FEATURES)
+
+    if tasks.get('query_imminence'):
+        print_importance(train_windows, 'label_query_imminence_15s', 'Query imminence (15s)', LAYER_3_FEATURES)      
 
     if tasks.get('query_with_no_effort'):
         train_queries = pd.concat([load_dataset(n, 'queries') for n in train_names], ignore_index=True)

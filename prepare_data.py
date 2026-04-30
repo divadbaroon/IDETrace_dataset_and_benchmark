@@ -291,6 +291,22 @@ def generate_windows(df, seg_df, out_path):
             else:
                 f['label_time_to_next_query_s'] = None
 
+            # Next query no-effort (predictive: will the next query be followed by zero effort?)
+            f['label_next_query_no_effort'] = None
+            if len(future_q) >= 1:
+                next_q_t = min(future_q)
+                resp_times = s[s['type'].isin(RESPONSE_TYPES)]['timestamp_s'].tolist()
+                next_resp = [rt for rt in resp_times if rt > next_q_t]
+                if next_resp:
+                    resp_t = min(next_resp)
+                    following_q = [qt for qt in q_times if qt > resp_t]
+                    if following_q:
+                        follow_q_t = min(following_q)
+                        between = s[(s['timestamp_s'] > resp_t) & (s['timestamp_s'] < follow_q_t)]
+                        code_between = len(between[between['type'].isin(CODE_TYPES)])
+                        runs_between = len(between[between['type'].isin(TERMINAL_TYPES)])
+                        f['label_next_query_no_effort'] = 1 if code_between == 0 and runs_between == 0 else 0
+
             # Next behavioral state
             if len(student_segs) > 0:
                 win_end_ms = (we - t0) * 1000
