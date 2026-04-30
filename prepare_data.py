@@ -250,6 +250,24 @@ def generate_windows(df, seg_df, out_path):
             code_times = code['timestamp_s'].tolist()
             f['error_self_fix'] = sum(1 for et in error_times if any(0 < ct - et <= 30 for ct in code_times))
 
+            # Prior no-effort rate
+            resp_times_list = s[s['type'].isin(RESPONSE_TYPES)]['timestamp_s'].tolist()
+            prior_q = [qt for qt in q_times if qt < we]
+            if len(prior_q) >= 2:
+                no_effort_count = 0
+                for qi_idx in range(len(prior_q) - 1):
+                    q1 = prior_q[qi_idx]
+                    resp_after = [rt for rt in resp_times_list if rt > q1]
+                    if resp_after:
+                        r1 = min(resp_after)
+                        q2 = prior_q[qi_idx + 1]
+                        btwn = s[(s['timestamp_s'] > r1) & (s['timestamp_s'] < q2)]
+                        if len(btwn[btwn['type'].isin(CODE_TYPES)]) == 0 and len(btwn[btwn['type'].isin(TERMINAL_TYPES)]) == 0:
+                            no_effort_count += 1
+                f['prior_no_effort_rate'] = round(no_effort_count / (len(prior_q) - 1), 4)
+            else:
+                f['prior_no_effort_rate'] = 0
+
             # ── Layer 3: Behavioral sequence features ──
             if len(student_segs) > 0:
                 win_start_ms = (ws - t0) * 1000

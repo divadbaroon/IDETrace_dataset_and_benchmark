@@ -42,8 +42,8 @@ deployments:
     enabled: true
 
 tasks:
-  next_behavioral_state: true
-  next_behavioral_sequence: true
-  query_imminence: true
+  next_behavioral_state: false
+  next_behavioral_sequence: false
+  query_imminence: false
   query_with_no_effort: true
   query_type: false

@@ -78,7 +78,9 @@ LAYER_2_FEATURES = LAYER_1_FEATURES + [
     'cum_code_rate', 'cum_query_rate', 'query_count_so_far',
     'time_since_session_start_s', 'net_code_growth', 'delete_ratio',
     'time_since_last_query_s', 'error_self_fix',
+    'prior_no_effort_rate',
 ]
+
 
 LAYER_3_FEATURES = LAYER_2_FEATURES + [
     'segments_in_window', 'pct_thinking', 'pct_implementing',
