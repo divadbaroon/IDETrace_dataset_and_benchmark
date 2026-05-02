@@ -325,18 +325,31 @@ def generate_windows(df, seg_df, out_path):
                         runs_between = len(between[between['type'].isin(TERMINAL_TYPES)])
                         f['label_next_query_no_effort'] = 1 if code_between == 0 and runs_between == 0 else 0
 
-            # Error response prediction: will student self-fix or query AI?
-            f['label_error_self_fix'] = None
+            # Error resolution: did the student resolve the next error without AI help?
+            # self_fix (1) = error → code edits → successful run, no AI query before resolution
+            # ai_fix (0) = error → AI query before error resolves
+            f['label_error_resolution'] = None
             future_errors = s[(s['type'].isin(ERROR_TYPES)) & (s['timestamp_s'] >= we)]
             if len(future_errors) > 0:
                 next_err_t = future_errors.iloc[0]['timestamp_s']
                 after_err = s[s['timestamp_s'] > next_err_t]
-                next_edit = after_err[after_err['type'].isin(CODE_TYPES)]
-                next_query = after_err[after_err['type'].isin(QUERY_TYPES)]
-                if len(next_edit) > 0 and (len(next_query) == 0 or next_edit.iloc[0]['timestamp_s'] < next_query.iloc[0]['timestamp_s']):
-                    f['label_error_self_fix'] = 1
-                elif len(next_query) > 0:
-                    f['label_error_self_fix'] = 0
+                
+                # Find next successful run (terminal run not followed immediately by error)
+                for _, evt in after_err.iterrows():
+                    if evt['type'] in TERMINAL_TYPES:
+                        # Check if this run produced an error
+                        next_after_run = after_err[after_err['timestamp_s'] > evt['timestamp_s']]
+                        next_evt = next_after_run.iloc[0] if len(next_after_run) > 0 else None
+                        if next_evt is None or next_evt['type'] not in ERROR_TYPES:
+                            # Successful run — check if AI was queried between error and here
+                            between = s[(s['timestamp_s'] > next_err_t) & (s['timestamp_s'] <= evt['timestamp_s'])]
+                            ai_between = len(between[between['type'].isin(QUERY_TYPES)])
+                            f['label_error_resolution'] = 1 if ai_between == 0 else 0
+                            break
+                    elif evt['type'] in QUERY_TYPES:
+                        # Queried AI before resolving
+                        f['label_error_resolution'] = 0
+                        break
 
             # Next behavioral state
             if len(student_segs) > 0:

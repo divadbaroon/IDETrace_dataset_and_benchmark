@@ -1138,22 +1138,22 @@ def main():
             results['next_query_no_effort'] = res
 
     # ══════════════════════════════════════════════════════════
-    #  TASK 3c: ERROR RESPONSE PREDICTION
+    #  TASK 3c: ERROR RESOLUTION (self-fix vs AI-assisted)
     # ══════════════════════════════════════════════════════════
 
-    if 'label_error_self_fix' in train_windows.columns:
+    if 'label_error_resolution' in train_windows.columns:
         print("\n" + "=" * 60)
-        print("  TASK 3c: ERROR RESPONSE (self-fix vs query AI)")
+        print("  TASK 3c: ERROR RESOLUTION (self-fix vs AI-assisted)")
         print("=" * 60)
 
         res = run_ablation(
             train_windows, test_windows,
-            'Error response', 'label_error_self_fix',
+            'Error resolution', 'label_error_resolution',
             window_layers, task_type='binary',
             seg_train=train_segments, seg_test=test_segments,
         )
         if res:
-            results['error_response'] = res
+            results['error_resolution'] = res
 
     # ══════════════════════════════════════════════════════════
     #  TASK 4: HIGH DELEGATION QUERY (binary)
