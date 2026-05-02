@@ -1138,22 +1138,22 @@ def main():
             results['next_query_no_effort'] = res
 
     # ══════════════════════════════════════════════════════════
-    #  TASK 3c: ERROR RESOLUTION (self-fix vs AI-assisted)
+    #  TASK 3c: QUERY OUTCOME (productive vs unproductive)
     # ══════════════════════════════════════════════════════════
 
-    if 'label_error_resolution' in train_windows.columns:
+    if 'label_query_productive' in train_windows.columns:
         print("\n" + "=" * 60)
-        print("  TASK 3c: ERROR RESOLUTION (self-fix vs AI-assisted)")
+        print("  TASK 3c: QUERY OUTCOME (will test pass count increase?)")
         print("=" * 60)
 
         res = run_ablation(
             train_windows, test_windows,
-            'Error resolution', 'label_error_resolution',
+            'Query outcome', 'label_query_productive',
             window_layers, task_type='binary',
             seg_train=train_segments, seg_test=test_segments,
         )
         if res:
-            results['error_resolution'] = res
+            results['query_productive'] = res
 
     # ══════════════════════════════════════════════════════════
     #  TASK 4: HIGH DELEGATION QUERY (binary)

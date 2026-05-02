@@ -325,31 +325,29 @@ def generate_windows(df, seg_df, out_path):
                         runs_between = len(between[between['type'].isin(TERMINAL_TYPES)])
                         f['label_next_query_no_effort'] = 1 if code_between == 0 and runs_between == 0 else 0
 
-            # Error resolution: did the student resolve the next error without AI help?
-            # self_fix (1) = error → code edits → successful run, no AI query before resolution
-            # ai_fix (0) = error → AI query before error resolves
-            f['label_error_resolution'] = None
-            future_errors = s[(s['type'].isin(ERROR_TYPES)) & (s['timestamp_s'] >= we)]
-            if len(future_errors) > 0:
-                next_err_t = future_errors.iloc[0]['timestamp_s']
-                after_err = s[s['timestamp_s'] > next_err_t]
-                
-                # Find next successful run (terminal run not followed immediately by error)
-                for _, evt in after_err.iterrows():
-                    if evt['type'] in TERMINAL_TYPES:
-                        # Check if this run produced an error
-                        next_after_run = after_err[after_err['timestamp_s'] > evt['timestamp_s']]
-                        next_evt = next_after_run.iloc[0] if len(next_after_run) > 0 else None
-                        if next_evt is None or next_evt['type'] not in ERROR_TYPES:
-                            # Successful run — check if AI was queried between error and here
-                            between = s[(s['timestamp_s'] > next_err_t) & (s['timestamp_s'] <= evt['timestamp_s'])]
-                            ai_between = len(between[between['type'].isin(QUERY_TYPES)])
-                            f['label_error_resolution'] = 1 if ai_between == 0 else 0
-                            break
-                    elif evt['type'] in QUERY_TYPES:
-                        # Queried AI before resolving
-                        f['label_error_resolution'] = 0
-                        break
+            # Query outcome: will test pass count increase within 60s of next query's response?
+            f['label_query_productive'] = None
+            if len(future_q) >= 1:
+                next_q_t = min(future_q)
+                # Find the response to this query
+                next_resp = [rt for rt in resp_times_list if rt > next_q_t]
+                if next_resp:
+                    resp_t = min(next_resp)
+                    # Get test state at query time
+                    tests_at_query = s[(s['type'] == 'TEST_CASE_RESULT') & (s['timestamp_s'] <= next_q_t)]
+                    passed_before = 0
+                    if len(tests_at_query) > 0:
+                        last_test = tests_at_query.iloc[-1]
+                        if pd.notna(last_test.get('test_passed_count')):
+                            passed_before = int(last_test['test_passed_count'])
+                    
+                    # Check test results within 60s after response
+                    tests_after = s[(s['type'] == 'TEST_CASE_RESULT') & 
+                                    (s['timestamp_s'] > resp_t) & 
+                                    (s['timestamp_s'] <= resp_t + 60)]
+                    if len(tests_after) > 0:
+                        max_passed_after = tests_after['test_passed_count'].dropna().astype(int).max()
+                        f['label_query_productive'] = 1 if max_passed_after > passed_before else 0
 
             # Next behavioral state
             if len(student_segs) > 0:
