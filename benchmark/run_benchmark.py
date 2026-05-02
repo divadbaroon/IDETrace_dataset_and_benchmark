@@ -1138,23 +1138,46 @@ def main():
             results['next_query_no_effort'] = res
 
     # ══════════════════════════════════════════════════════════
-    #  TASK 3c: QUERY OUTCOME (productive vs unproductive)
+    #  TASK 3c: PROGRESS PREDICTION
     # ══════════════════════════════════════════════════════════
 
-    if 'label_query_productive' in train_windows.columns:
+    if 'label_progress' in train_windows.columns:
         print("\n" + "=" * 60)
-        print("  TASK 3c: QUERY OUTCOME (will test pass count increase?)")
+        print("  TASK 3c: PROGRESS (will test pass count increase in 60s?)")
         print("=" * 60)
 
         res = run_ablation(
             train_windows, test_windows,
-            'Query outcome', 'label_query_productive',
+            'Progress prediction', 'label_progress',
             window_layers, task_type='binary',
             seg_train=train_segments, seg_test=test_segments,
         )
         if res:
-            results['query_productive'] = res
+            results['progress'] = res
 
+    # ══════════════════════════════════════════════════════════
+    #  TASK 3d: ERROR IMMINENCE
+    # ══════════════════════════════════════════════════════════
+
+    if 'label_error_imminence_30s' in train_windows.columns:
+        print("\n" + "=" * 60)
+        print("  TASK 3d: ERROR IMMINENCE")
+        print("=" * 60)
+
+        for horizon in [15, 30, 60]:
+            label_col = f'label_error_imminence_{horizon}s'
+            if label_col not in train_windows.columns:
+                continue
+            print(f"\n  --- {horizon}s horizon ---")
+            res = run_ablation(
+                train_windows, test_windows,
+                f'Error imminence ({horizon}s)', label_col,
+                window_layers, task_type='binary',
+                seg_train=train_segments, seg_test=test_segments,
+            )
+            if res:
+                results[f'error_imminence_{horizon}s'] = res
+                
     # ══════════════════════════════════════════════════════════
     #  TASK 4: HIGH DELEGATION QUERY (binary)
     # ══════════════════════════════════════════════════════════

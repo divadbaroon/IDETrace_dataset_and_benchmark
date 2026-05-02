@@ -349,6 +349,21 @@ def generate_windows(df, seg_df, out_path):
                         max_passed_after = tests_after['test_passed_count'].dropna().astype(int).max()
                         f['label_query_productive'] = 1 if max_passed_after > passed_before else 0
 
+            # Progress prediction: will test pass count increase in next 60s?
+            f['label_progress'] = None
+            tests_now = s[(s['type'] == 'TEST_CASE_RESULT') & (s['timestamp_s'] <= we)]
+            tests_future = s[(s['type'] == 'TEST_CASE_RESULT') & 
+                            (s['timestamp_s'] > we) & (s['timestamp_s'] <= we + 60)]
+            if len(tests_now) > 0 and len(tests_future) > 0:
+                passed_now = int(tests_now.iloc[-1].get('test_passed_count', 0) or 0)
+                max_future = tests_future['test_passed_count'].dropna().astype(int).max()
+                f['label_progress'] = 1 if max_future > passed_now else 0
+
+            # Error imminence: will a terminal error occur within Xs?
+            err_times = s[s['type'].isin(ERROR_TYPES)]['timestamp_s'].tolist()
+            for horizon in [15, 30, 60]:
+                f[f'label_error_imminence_{horizon}s'] = int(any(we <= et <= we + horizon for et in err_times))
+            
             # Next behavioral state
             if len(student_segs) > 0:
                 win_end_ms = (we - t0) * 1000
