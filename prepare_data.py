@@ -70,7 +70,6 @@ def load_raw(path):
             payload = ev.get('payload', {}) or {}
             text_len = 0
             if isinstance(payload, dict):
-                # Extract text length from chat events
                 text = payload.get('text') or payload.get('content') or payload.get('message') or ''
                 text_len = len(text) if text else (payload.get('length', 0) or 0)
 
@@ -184,6 +183,11 @@ def generate_windows(df, seg_df, out_path):
 
         student_segs = seg_df[seg_df['student_id'] == sid] if seg_df is not None else pd.DataFrame()
 
+        # Pre-compute query and response times for this student (used in features and labels)
+        all_q = s[s['type'].isin(QUERY_TYPES)]
+        q_times = all_q['timestamp_s'].tolist()
+        resp_times_list = s[s['type'].isin(RESPONSE_TYPES)]['timestamp_s'].tolist()
+
         ws = t0
         while ws + WINDOW_SIZE_S <= t1:
             we = ws + WINDOW_SIZE_S
@@ -242,8 +246,8 @@ def generate_windows(df, seg_df, out_path):
             f['net_code_growth'] = inserts - deletes
             f['delete_ratio'] = round(deletes / max(1, inserts + deletes), 4)
 
-            prior_q = cum[cum['type'].isin(QUERY_TYPES)]
-            last_q_t = prior_q['timestamp_s'].max() if len(prior_q) > 0 else 0
+            prior_q_cum = cum[cum['type'].isin(QUERY_TYPES)]
+            last_q_t = prior_q_cum['timestamp_s'].max() if len(prior_q_cum) > 0 else 0
             f['time_since_last_query_s'] = round(we - last_q_t, 2) if last_q_t > 0 else round(we - t0, 2)
 
             error_times = errs['timestamp_s'].tolist()
@@ -251,7 +255,6 @@ def generate_windows(df, seg_df, out_path):
             f['error_self_fix'] = sum(1 for et in error_times if any(0 < ct - et <= 30 for ct in code_times))
 
             # Prior no-effort rate
-            resp_times_list = s[s['type'].isin(RESPONSE_TYPES)]['timestamp_s'].tolist()
             prior_q = [qt for qt in q_times if qt < we]
             if len(prior_q) >= 2:
                 no_effort_count = 0
@@ -297,8 +300,6 @@ def generate_windows(df, seg_df, out_path):
             # ── Labels ──
 
             # Query imminence
-            all_q = s[s['type'].isin(QUERY_TYPES)]
-            q_times = all_q['timestamp_s'].tolist()
             for horizon in [5, 10, 15, 30, 45, 60]:
                 f[f'label_query_imminence_{horizon}s'] = int(any(we <= qt <= we + horizon for qt in q_times))
 
@@ -313,8 +314,7 @@ def generate_windows(df, seg_df, out_path):
             f['label_next_query_no_effort'] = None
             if len(future_q) >= 1:
                 next_q_t = min(future_q)
-                resp_times = s[s['type'].isin(RESPONSE_TYPES)]['timestamp_s'].tolist()
-                next_resp = [rt for rt in resp_times if rt > next_q_t]
+                next_resp = [rt for rt in resp_times_list if rt > next_q_t]
                 if next_resp:
                     resp_t = min(next_resp)
                     following_q = [qt for qt in q_times if qt > resp_t]
@@ -324,6 +324,19 @@ def generate_windows(df, seg_df, out_path):
                         code_between = len(between[between['type'].isin(CODE_TYPES)])
                         runs_between = len(between[between['type'].isin(TERMINAL_TYPES)])
                         f['label_next_query_no_effort'] = 1 if code_between == 0 and runs_between == 0 else 0
+
+            # Error response prediction: will student self-fix or query AI?
+            f['label_error_self_fix'] = None
+            future_errors = s[(s['type'].isin(ERROR_TYPES)) & (s['timestamp_s'] >= we)]
+            if len(future_errors) > 0:
+                next_err_t = future_errors.iloc[0]['timestamp_s']
+                after_err = s[s['timestamp_s'] > next_err_t]
+                next_edit = after_err[after_err['type'].isin(CODE_TYPES)]
+                next_query = after_err[after_err['type'].isin(QUERY_TYPES)]
+                if len(next_edit) > 0 and (len(next_query) == 0 or next_edit.iloc[0]['timestamp_s'] < next_query.iloc[0]['timestamp_s']):
+                    f['label_error_self_fix'] = 1
+                elif len(next_query) > 0:
+                    f['label_error_self_fix'] = 0
 
             # Next behavioral state
             if len(student_segs) > 0:
@@ -384,7 +397,7 @@ def _compute_window_metrics(w, dur):
 
     f['code_edits'] = len(code)
     f['code_edit_rate'] = round(len(code) / max(0.1, dur), 4)
-    f['chars_inserted'] = len(code_types)  # proxy: 1 keystroke ≈ 1 char
+    f['chars_inserted'] = len(code_types)
     f['chars_deleted'] = len(code_deletes)
     f['code_deletes'] = len(code_deletes)
     f['net_code_growth'] = len(code_types) + len(code_pastes) - len(code_deletes)
@@ -430,11 +443,9 @@ def _compute_window_metrics(w, dur):
         next_query = after[after['type'].isin(QUERY_TYPES)]
         next_active = after[after['type'].isin(CODE_TYPES | TERMINAL_TYPES | QUERY_TYPES)]
 
-        # Error reading time: time to any next action
         if len(next_active) > 0:
             error_reading_times.append(next_active.iloc[0]['timestamp_s'] - err['timestamp_s'])
 
-        # Error to edit latency
         if len(next_edit) > 0:
             error_to_edit_times.append(next_edit.iloc[0]['timestamp_s'] - err['timestamp_s'])
 
@@ -792,9 +803,9 @@ def process_deployment(name, config, force=False, only=None):
     if only == 'segments':
         need_win, need_qry = False, False
     elif only == 'windows':
-        need_qry = False
+        need_seg, need_qry = False, False
     elif only == 'queries':
-        need_win = False
+        need_seg, need_win = False, False
 
     if not need_seg and not need_win and not need_qry:
         print(f"  └─ Up to date")
