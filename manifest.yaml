@@ -14,36 +14,35 @@ deployments:
   deployment_3:
     raw_telemetry: raw_telemetry/deployment_3.json
     split: test
-    enabled: true
+    enabled: false
   # Instructor B am Session (Python) - 4/27/2026
   deployment_4:
     raw_telemetry: raw_telemetry/deployment_4.json
     split: test
-    enabled: true
+    enabled: false
   # Instructor B pm Session (Python) - 4/27/2026
   deployment_5:
     raw_telemetry: raw_telemetry/deployment_5.json
     split: test
-    enabled: true
+    enabled: false
   # Instructor C pm session (C) - 4/27/2026
   deployment_6:
     raw_telemetry: raw_telemetry/deployment_6.json
     split: test
-    enabled: true
+    enabled: false
   # Instructor A am session (Python) - 4/28/2026
   deployment_7:
     raw_telemetry: raw_telemetry/deployment_7.json
     split: test
-    enabled: true
+    enabled: false
   # Instructor A pm session (Python) - 4/28/2026
   deployment_8:
     raw_telemetry: raw_telemetry/deployment_8.json
     split: test
-    enabled: true
+    enabled: false
 
 tasks:
-  next_behavioral_state: false
-  next_behavioral_sequence: false
-  query_imminence: false
-  query_with_no_effort: true
-  query_type: false
+  next_behavioral_state: true
+  error_imminence: true
+  query_imminence: true
+  post_query_improvement: true
