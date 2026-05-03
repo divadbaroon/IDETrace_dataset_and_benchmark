@@ -1,0 +1,40 @@
+{
+  "model": "gpt-4o-mini",
+  "test_deployments": [
+    "deployment_2"
+  ],
+  "sample_size": 1000,
+  "results": [
+    {
+      "task": "next_behavioral_state",
+      "auc": 0.512,
+      "f1": 0.211,
+      "n_samples": 999,
+      "n_errors": 0
+    },
+    {
+      "task": "error_imminence_15s",
+      "auc": 0.756,
+      "f1": 0.549,
+      "n_samples": 999,
+      "n_errors": 0,
+      "pos_rate": 0.045
+    },
+    {
+      "task": "query_imminence_15s",
+      "auc": 0.8,
+      "f1": 0.492,
+      "n_samples": 999,
+      "n_errors": 0,
+      "pos_rate": 0.03
+    },
+    {
+      "task": "post_query_improvement",
+      "auc": 0.873,
+      "f1": 0.697,
+      "n_samples": 450,
+      "n_errors": 0,
+      "pos_rate": 0.153
+    }
+  ]
+}

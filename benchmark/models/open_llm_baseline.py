@@ -10,16 +10,23 @@ Evaluates open-source LLMs via Ollama on four tasks:
 Reads test deployments from manifest.yaml automatically.
 Connects to Ollama running locally or on a remote server.
 
+Supports thinking models (Qwen3.5, DeepSeek-R1) by:
+  1. Passing think=false via extra_body to disable thinking
+  2. Stripping <think> tags from output as fallback
+  3. Using explicit no-thinking system prompt
+
 Usage:
   cd tutortrace_dataset_and_benchmark
-  python3 benchmark/models/open_llm_baseline.py --model llama4
   python3 benchmark/models/open_llm_baseline.py --model llama3.1:8b
-  python3 benchmark/models/open_llm_baseline.py --model qwen2.5:7b
+  python3 benchmark/models/open_llm_baseline.py --model qwen3.5:9b
+  python3 benchmark/models/open_llm_baseline.py --model deepseek-r1:8b
 
-Run all three back to back:
-  python3 benchmark/models/open_llm_baseline.py --model llama4 --output llm_results_llama4.json && \
+Run all back to back:
   python3 benchmark/models/open_llm_baseline.py --model llama3.1:8b --output llm_results_llama31.json && \
-  python3 benchmark/models/open_llm_baseline.py --model qwen2.5:7b --output llm_results_qwen.json
+  python3 benchmark/models/open_llm_baseline.py --model qwen3.5:9b --output llm_results_qwen35.json && \
+  python3 benchmark/models/open_llm_baseline.py --model deepseek-r1:8b --output llm_results_deepseek_r1.json && \
+  python3 benchmark/models/open_llm_baseline.py --model qwen2.5:7b --output llm_results_qwen25.json && \
+  python3 benchmark/models/open_llm_baseline.py --model deepseek-v2:16b --output llm_results_deepseek_v2.json
 """
 
 import argparse
@@ -27,11 +34,11 @@ import json
 import os
 import re
 import time
+import requests
 import yaml
 import numpy as np
 import pandas as pd
 from sklearn.metrics import roc_auc_score, f1_score, classification_report
-from openai import OpenAI
 
 
 # ── Prompt builders ──────────────────────────────────────────────────────────
@@ -153,23 +160,40 @@ Test state at query:
 Respond with ONLY a number between 0.0 and 1.0 representing the probability that tests will improve after this AI interaction. No explanation."""
 
 
-# ── API caller ───────────────────────────────────────────────────────────────
+# ── API caller (native Ollama API) ───────────────────────────────────────────
 
-def call_llm(client, prompt, model, max_retries=3):
-    """Call Ollama API with retries."""
+SYSTEM_PROMPT = (
+    "Respond with ONLY the requested value. No reasoning, no explanation, no extra text. "
+    "Do NOT use <think> tags or any internal reasoning. Output only the final answer."
+)
+
+
+def call_llm(ollama_base_url, prompt, model, max_retries=3):
+    """Call Ollama native API with think=false for thinking models."""
+    # Use native Ollama API (not OpenAI-compatible) to support think parameter
+    api_url = ollama_base_url.replace('/v1', '').rstrip('/') + '/api/chat'
+
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ],
+        "stream": False,
+        "think": False,
+        "options": {
+            "temperature": 0.0,
+            "num_predict": 50,
+        },
+    }
+
     for attempt in range(max_retries):
         try:
-            messages = [
-                {"role": "system", "content": "Respond with ONLY the requested value. No reasoning, no explanation, no extra text."},
-                {"role": "user", "content": prompt},
-            ]
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=0.0,
-                max_tokens=50,
-            )
-            return response.choices[0].message.content.strip()
+            resp = requests.post(api_url, json=payload, timeout=120)
+            resp.raise_for_status()
+            data = resp.json()
+            content = data.get('message', {}).get('content', '')
+            return content.strip() if content else ''
         except Exception as e:
             if attempt < max_retries - 1:
                 wait = 2 ** attempt
@@ -181,7 +205,7 @@ def call_llm(client, prompt, model, max_retries=3):
 
 
 def strip_think_tags(text):
-    """Remove <think>...</think> blocks from model output."""
+    """Remove <think>...</think> blocks from model output (fallback)."""
     return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
 
 
@@ -191,6 +215,8 @@ def parse_probability(response_text):
         return None
 
     text = strip_think_tags(response_text)
+    if not text:
+        return None
 
     try:
         val = float(text)
@@ -223,6 +249,8 @@ def parse_state(response_text):
         return None
 
     text = strip_think_tags(response_text).lower()
+    if not text:
+        return None
 
     STATE_NAMES = ['thinking', 'implementing', 'debugging', 'seekinghelp', 'testing']
 
@@ -285,7 +313,7 @@ def stratified_subsample(df, label_col, n=1000, seed=42):
 
 # ── Task runners ─────────────────────────────────────────────────────────────
 
-def run_binary_task(client, df, model, sample_size, task_name, label_col, prompt_builder):
+def run_binary_task(ollama_url, df, model, sample_size, task_name, label_col, prompt_builder):
     """Run a binary probability prediction task."""
     print(f"\n{'=' * 60}")
     print(f"  TASK: {task_name}")
@@ -310,12 +338,12 @@ def run_binary_task(client, df, model, sample_size, task_name, label_col, prompt
             print(f"  Processing {i + 1}/{len(sample)}... ({valid} valid, {errors} errors [{err_pct:.0f}%])")
 
         prompt = prompt_builder(row)
-        response = call_llm(client, prompt, model)
+        response = call_llm(ollama_url, prompt, model)
         prob = parse_probability(response)
 
         if prob is None:
             errors += 1
-            if errors <= 3:
+            if errors <= 5:
                 print(f"    Could not parse: '{response}'")
             continue
 
@@ -345,7 +373,7 @@ def run_binary_task(client, df, model, sample_size, task_name, label_col, prompt
     }
 
 
-def run_next_state_task(client, df, model, sample_size):
+def run_next_state_task(ollama_url, df, model, sample_size):
     """Run next behavioral state prediction (5-class)."""
     print(f"\n{'=' * 60}")
     print(f"  TASK: NEXT BEHAVIORAL STATE (5-class)")
@@ -372,12 +400,12 @@ def run_next_state_task(client, df, model, sample_size):
             print(f"  Processing {i + 1}/{len(sample)}... ({valid} valid, {errors} errors [{err_pct:.0f}%])")
 
         prompt = build_next_state_prompt(row)
-        response = call_llm(client, prompt, model)
+        response = call_llm(ollama_url, prompt, model)
         matched_state = parse_state(response)
 
         if matched_state is None:
             errors += 1
-            if errors <= 3:
+            if errors <= 5:
                 print(f"    Could not parse: '{response}'")
             continue
 
@@ -460,7 +488,6 @@ def main():
     print(f"  Tasks: {tasks_to_run}")
     print()
 
-    client = OpenAI(base_url=args.ollama_url, api_key="ollama")
     results = []
 
     # Load window-level data
@@ -479,14 +506,14 @@ def main():
 
     # Task 1: Next behavioral state
     if 'next_state' in tasks_to_run and df_windows is not None:
-        result = run_next_state_task(client, df_windows, args.model, args.sample_size)
+        result = run_next_state_task(args.ollama_url, df_windows, args.model, args.sample_size)
         if result:
             results.append(result)
 
     # Task 2: Error imminence 15s
     if 'error_imminence' in tasks_to_run and df_windows is not None:
         result = run_binary_task(
-            client, df_windows, args.model, args.sample_size,
+            args.ollama_url, df_windows, args.model, args.sample_size,
             'error_imminence_15s', 'label_error_imminence_15s',
             build_error_imminence_prompt,
         )
@@ -496,7 +523,7 @@ def main():
     # Task 3: Query imminence 15s
     if 'query_imminence' in tasks_to_run and df_windows is not None:
         result = run_binary_task(
-            client, df_windows, args.model, args.sample_size,
+            args.ollama_url, df_windows, args.model, args.sample_size,
             'query_imminence_15s', 'label_query_imminence_15s',
             build_query_imminence_prompt,
         )
@@ -506,7 +533,7 @@ def main():
     # Task 4: Post-query improvement
     if 'post_query' in tasks_to_run and df_queries is not None:
         result = run_binary_task(
-            client, df_queries, args.model, len(df_queries),
+            args.ollama_url, df_queries, args.model, len(df_queries),
             'post_query_improvement', 'label_post_query_improvement',
             build_post_query_improvement_prompt,
         )
