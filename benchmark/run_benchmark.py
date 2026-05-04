@@ -58,6 +58,44 @@ except ImportError:
 
 
 # ══════════════════════════════════════════════════════════════
+#  MULTICLASS AUC HELPER
+# ══════════════════════════════════════════════════════════════
+
+def safe_multiclass_auc(y_true, y_prob):
+    """Compute multiclass AUC, handling mismatched class counts between train and test.
+    
+    When the test set has fewer classes than the model was trained on,
+    we filter the probability matrix to only the classes present in the test set,
+    renormalize so rows sum to 1.0, and remap labels to sequential 0-based indices.
+    """
+    try:
+        test_classes = sorted(np.unique(y_true))
+        n_prob_cols = y_prob.shape[1]
+        
+        if len(test_classes) < 2:
+            return 0.5
+        
+        if len(test_classes) < n_prob_cols:
+            # Filter to columns for classes present in test
+            y_prob_filtered = y_prob[:, test_classes]
+            # Renormalize so rows sum to 1.0
+            row_sums = y_prob_filtered.sum(axis=1, keepdims=True)
+            row_sums = np.where(row_sums == 0, 1, row_sums)
+            y_prob_filtered = y_prob_filtered / row_sums
+            # Remap labels to sequential 0-based indices
+            label_map = {c: i for i, c in enumerate(test_classes)}
+            if isinstance(y_true, pd.Series):
+                y_true_remapped = y_true.map(label_map).values
+            else:
+                y_true_remapped = np.array([label_map[c] for c in y_true])
+            return roc_auc_score(y_true_remapped, y_prob_filtered, multi_class='ovr', average='macro')
+        else:
+            return roc_auc_score(y_true, y_prob, multi_class='ovr', average='macro')
+    except Exception:
+        return 0.5
+
+
+# ══════════════════════════════════════════════════════════════
 #  CONFIG
 # ══════════════════════════════════════════════════════════════
 
@@ -190,19 +228,13 @@ def evaluate(model, X_train, y_train, X_test, y_test, task_type='binary'):
 
     if hasattr(model, 'predict_proba'):
         y_prob = model.predict_proba(Xte)
-        try:
-            if task_type == 'binary':
+        if task_type == 'binary':
+            try:
                 results['auc'] = roc_auc_score(y_test, y_prob[:, 1])
-            else:
-                # Handle test set with fewer classes than train
-                test_classes = sorted(y_test.unique())
-                if len(test_classes) < y_prob.shape[1]:
-                    y_prob_filtered = y_prob[:, test_classes]
-                    results['auc'] = roc_auc_score(y_test, y_prob_filtered, multi_class='ovr', average='macro', labels=test_classes)
-                else:
-                    results['auc'] = roc_auc_score(y_test, y_prob, multi_class='ovr', average='macro')
-        except:
-            results['auc'] = 0.5
+            except:
+                results['auc'] = 0.5
+        else:
+            results['auc'] = safe_multiclass_auc(y_test, y_prob)
     else:
         results['auc'] = 0.5
 
@@ -283,23 +315,13 @@ if HAS_TORCH:
             'accuracy': accuracy_score(y_test, preds),
             'macro_f1': f1_score(y_test, preds, average='macro', zero_division=0),
         }
-        try:
-            if n_classes == 2:
+        if n_classes == 2:
+            try:
                 results['auc'] = roc_auc_score(y_test, probs[:, 1])
-            else:
-                test_classes = sorted(y_test.unique())
-                if len(test_classes) < probs.shape[1]:
-                    probs_filtered = probs[:, test_classes]
-                    results['auc'] = roc_auc_score(y_test, probs_filtered, multi_class='ovr', average='macro', labels=test_classes)
-                else:
-                    test_classes = sorted(y_test.unique())
-                if len(test_classes) < probs.shape[1]:
-                    probs_filtered = probs[:, test_classes]
-                    results['auc'] = roc_auc_score(y_test, probs_filtered, multi_class='ovr', average='macro', labels=test_classes)
-                else:
-                    results['auc'] = roc_auc_score(y_test, probs, multi_class='ovr', average='macro')
-        except:
-            results['auc'] = 0.5
+            except:
+                results['auc'] = 0.5
+        else:
+            results['auc'] = safe_multiclass_auc(y_test, probs)
 
         if return_probs:
             return results, probs
@@ -462,13 +484,13 @@ if HAS_TORCH:
             'accuracy': accuracy_score(y_test, preds),
             'macro_f1': f1_score(y_test, preds, average='macro', zero_division=0),
         }
-        try:
-            if n_classes == 2:
+        if n_classes == 2:
+            try:
                 results['auc'] = roc_auc_score(y_test, probs[:, 1])
-            else:
-                results['auc'] = roc_auc_score(y_test, probs, multi_class='ovr', average='macro')
-        except:
-            results['auc'] = 0.5
+            except:
+                results['auc'] = 0.5
+        else:
+            results['auc'] = safe_multiclass_auc(y_test, probs)
 
         if return_probs:
             return results, probs
@@ -483,18 +505,13 @@ def evaluate_ensemble(xgb_probs, seq_probs, y_test, task_type='binary', weight_x
         'accuracy': accuracy_score(y_test, preds),
         'macro_f1': f1_score(y_test, preds, average='macro', zero_division=0),
     }
-    try:
-        if task_type == 'binary':
+    if task_type == 'binary':
+        try:
             results['auc'] = roc_auc_score(y_test, avg_probs[:, 1])
-        else:
-            test_classes = sorted(y_test.unique())
-            if len(test_classes) < avg_probs.shape[1]:
-                probs_filtered = avg_probs[:, test_classes]
-                results['auc'] = roc_auc_score(y_test, probs_filtered, multi_class='ovr', average='macro', labels=test_classes)
-            else:
-                results['auc'] = roc_auc_score(y_test, avg_probs, multi_class='ovr', average='macro')
-    except:
-        results['auc'] = 0.5
+        except:
+            results['auc'] = 0.5
+    else:
+        results['auc'] = safe_multiclass_auc(y_test, avg_probs)
 
     return results
 
@@ -930,7 +947,6 @@ def main():
             # ── 4a: Query-level prediction ──
             print(f"\n  --- Query-level (pre-query features → query type) ---")
 
-            # Exclude query content features to prevent leakage
             q_feats = [c for c in Q_PRE_FEATURES if c in train_queries.columns]
 
             q_layers = {
@@ -947,7 +963,6 @@ def main():
             if res:
                 results['query_type_query_level'] = res
 
-                # Per-class breakdown
                 best = 'XGBoost' if 'XGBoost' in res else 'RandomForest'
                 best_cond = 'Pre-query features'
                 if best in res and best_cond in res[best]:
@@ -1007,7 +1022,6 @@ def main():
         print_importance(train_windows, 'label_query_imminence_15s', 'Query imminence (15s)', LAYER_3_FEATURES)
 
     if tasks.get('query_type'):
-        # Query-level importance
         train_queries = pd.concat([load_dataset(n, 'queries') for n in train_names], ignore_index=True)
         train_labels = load_query_labels(train_names)
         if len(train_labels) > 0:
@@ -1019,7 +1033,6 @@ def main():
             q_feats = [c for c in Q_PRE_FEATURES if c in train_queries.columns]
             print_importance(train_queries, 'query_type', 'Query type (query-level)', q_feats)
 
-        # Window-level importance
         if 'label_next_query_type' in train_windows.columns:
             train_qt_win = train_windows[train_windows['label_next_query_type'].notna()]
             if len(train_qt_win) > 0:
