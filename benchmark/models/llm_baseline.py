@@ -157,18 +157,23 @@ Respond with ONLY a number between 0.0 and 1.0 representing the probability that
 # ── API caller ───────────────────────────────────────────────────────────────
 
 def call_llm(client, prompt, model="gpt-4o-mini", max_retries=3):
-    """Call OpenAI API with retries."""
     for attempt in range(max_retries):
         try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
+            kwargs = {
+                "model": model,
+                "messages": [
                     {"role": "system", "content": "Respond with ONLY the requested value. No reasoning, no explanation, no extra text."},
                     {"role": "user", "content": prompt},
                 ],
-                temperature=0.0,
-                max_tokens=20,
-            )
+            }
+            # GPT-5.x reasoning models don't support temperature or max_tokens
+            if model.startswith("gpt-5"):
+                kwargs["max_completion_tokens"] = 500
+            else:
+                kwargs["temperature"] = 0.0
+                kwargs["max_tokens"] = 20
+            
+            response = client.chat.completions.create(**kwargs)
             return response.choices[0].message.content.strip()
         except Exception as e:
             if attempt < max_retries - 1:

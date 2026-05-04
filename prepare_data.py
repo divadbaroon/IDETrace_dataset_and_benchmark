@@ -19,7 +19,7 @@ Tasks:
     1. Next behavioral state (window-level, 5-class)
     2. Error imminence (window-level, binary at multiple horizons)
     3. Query imminence (window-level, binary at multiple horizons)
-    4. Post-query improvement (query-level, binary)
+    4. Query type prediction (window-level + query-level, 5-class)
 """
 
 import os
@@ -94,6 +94,20 @@ def load_raw(path):
     df = df.dropna(subset=['timestamp_ms'])
     df['timestamp_s'] = df['timestamp_ms'] / 1000.0
     return df.sort_values(['student_id', 'timestamp_ms']).reset_index(drop=True)
+
+
+def load_query_labels(deployment_name):
+    """Load query type labels for a deployment if available."""
+    label_path = os.path.join(DATASET_DIR, 'query_labels', f'{deployment_name}_labels.csv')
+    if os.path.exists(label_path):
+        ldf = pd.read_csv(label_path)
+        ldf['student_id'] = ldf['student_id'].astype(str)
+        # Build lookup: (student_id, query_index) -> query_type
+        label_map = {}
+        for _, row in ldf.iterrows():
+            label_map[(str(row['student_id']), int(row['query_index']))] = row['query_type']
+        return label_map
+    return {}
 
 
 def derived_paths(name):
@@ -172,7 +186,7 @@ def generate_segments(df, out_path):
 #  STEP 2: WINDOW-LEVEL FEATURES
 # ══════════════════════════════════════════════════════════════
 
-def generate_windows(df, seg_df, out_path):
+def generate_windows(df, seg_df, out_path, query_label_map=None):
     print("    [2/3] Generating window-level features...")
     rows = []
     students = df['student_id'].unique()
@@ -190,7 +204,9 @@ def generate_windows(df, seg_df, out_path):
         student_segs = seg_df[seg_df['student_id'] == sid] if seg_df is not None else pd.DataFrame()
 
         # Pre-compute event times for this student
-        q_times = s[s['type'].isin(QUERY_TYPES)]['timestamp_s'].tolist()
+        q_events = s[s['type'].isin(QUERY_TYPES)].sort_values('timestamp_s')
+        q_times = q_events['timestamp_s'].tolist()
+        q_indices = list(range(1, len(q_times) + 1))  # 1-indexed
         resp_times_list = s[s['type'].isin(RESPONSE_TYPES)]['timestamp_s'].tolist()
         err_times = s[s['type'].isin(ERROR_TYPES)]['timestamp_s'].tolist()
 
@@ -341,11 +357,19 @@ def generate_windows(df, seg_df, out_path):
                 f[f'label_query_imminence_{horizon}s'] = int(any(we <= qt <= we + horizon for qt in q_times))
 
             # Time to next query (regression)
-            future_q = [qt for qt in q_times if qt >= we]
+            future_q = [(qt, qi) for qt, qi in zip(q_times, q_indices) if qt >= we]
             if future_q:
-                f['label_time_to_next_query_s'] = round(min(future_q) - we, 2)
+                next_q_time, next_q_idx = future_q[0]
+                f['label_time_to_next_query_s'] = round(next_q_time - we, 2)
+
+                # Task 4 (window-level): Next query type
+                if query_label_map and next_q_time <= we + 15:
+                    f['label_next_query_type'] = query_label_map.get((sid, next_q_idx), None)
+                else:
+                    f['label_next_query_type'] = None
             else:
                 f['label_time_to_next_query_s'] = None
+                f['label_next_query_type'] = None
 
             rows.append(f)
             ws += WINDOW_STEP_S
@@ -356,6 +380,13 @@ def generate_windows(df, seg_df, out_path):
     win_df = pd.DataFrame(rows)
     save(win_df, out_path)
     print(f"      {win_df['student_id'].nunique()} students → {len(win_df):,} windows, {len(win_df.columns)} columns")
+
+    if 'label_next_query_type' in win_df.columns:
+        valid = win_df['label_next_query_type'].dropna()
+        if len(valid) > 0:
+            print(f"      Next query type labels: {len(valid)} valid")
+            print(f"        {valid.value_counts().to_dict()}")
+
     return win_df
 
 
@@ -650,23 +681,8 @@ def generate_queries(df, seg_df, out_path):
 
     q_df = pd.DataFrame(rows)
 
-    # ── Task 4 Label: Post-query improvement ──
-    # Did test_passed increase from previous query to this query?
-    q_df['prev_test_passed'] = q_df.groupby('student_id')['test_passed_at_query'].shift(1)
-    q_df['label_post_query_improvement'] = None
-    mask = q_df['prev_test_passed'].notna()
-    q_df.loc[mask, 'label_post_query_improvement'] = (
-        q_df.loc[mask, 'test_passed_at_query'] > q_df.loc[mask, 'prev_test_passed']
-    ).astype(int)
-    q_df = q_df.drop(columns=['prev_test_passed'])
-
     save(q_df, out_path)
     print(f"      {q_df['student_id'].nunique()} students → {len(q_df)} queries, {len(q_df.columns)} columns")
-
-    if 'label_post_query_improvement' in q_df.columns:
-        valid = q_df['label_post_query_improvement'].dropna()
-        if len(valid) > 0:
-            print(f"      Post-query improvement: {len(valid)} valid, {int(valid.sum())} positive ({valid.mean()*100:.1f}%)")
 
     return q_df
 
@@ -732,6 +748,11 @@ def process_deployment(name, config, force=False, only=None):
     n_ai = df[df['type'].isin(QUERY_TYPES)]['student_id'].nunique()
     print(f"      {n_stu} students, {n_evt:,} events, {n_ai} AI users")
 
+    # Load query type labels if available
+    query_label_map = load_query_labels(name)
+    if query_label_map:
+        print(f"  │  Query type labels: {len(query_label_map)} loaded")
+
     seg_df = None
     if need_seg:
         print(f"  │")
@@ -743,7 +764,7 @@ def process_deployment(name, config, force=False, only=None):
 
     if need_win:
         print(f"  │")
-        generate_windows(df, seg_df, paths['windows'])
+        generate_windows(df, seg_df, paths['windows'], query_label_map=query_label_map)
 
     if need_qry:
         print(f"  │")
