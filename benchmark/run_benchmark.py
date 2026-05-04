@@ -194,7 +194,13 @@ def evaluate(model, X_train, y_train, X_test, y_test, task_type='binary'):
             if task_type == 'binary':
                 results['auc'] = roc_auc_score(y_test, y_prob[:, 1])
             else:
-                results['auc'] = roc_auc_score(y_test, y_prob, multi_class='ovr', average='macro')
+                # Handle test set with fewer classes than train
+                test_classes = sorted(y_test.unique())
+                if len(test_classes) < y_prob.shape[1]:
+                    y_prob_filtered = y_prob[:, test_classes]
+                    results['auc'] = roc_auc_score(y_test, y_prob_filtered, multi_class='ovr', average='macro', labels=test_classes)
+                else:
+                    results['auc'] = roc_auc_score(y_test, y_prob, multi_class='ovr', average='macro')
         except:
             results['auc'] = 0.5
     else:
@@ -281,7 +287,17 @@ if HAS_TORCH:
             if n_classes == 2:
                 results['auc'] = roc_auc_score(y_test, probs[:, 1])
             else:
-                results['auc'] = roc_auc_score(y_test, probs, multi_class='ovr', average='macro')
+                test_classes = sorted(y_test.unique())
+                if len(test_classes) < probs.shape[1]:
+                    probs_filtered = probs[:, test_classes]
+                    results['auc'] = roc_auc_score(y_test, probs_filtered, multi_class='ovr', average='macro', labels=test_classes)
+                else:
+                    test_classes = sorted(y_test.unique())
+                if len(test_classes) < probs.shape[1]:
+                    probs_filtered = probs[:, test_classes]
+                    results['auc'] = roc_auc_score(y_test, probs_filtered, multi_class='ovr', average='macro', labels=test_classes)
+                else:
+                    results['auc'] = roc_auc_score(y_test, probs, multi_class='ovr', average='macro')
         except:
             results['auc'] = 0.5
 
@@ -471,7 +487,12 @@ def evaluate_ensemble(xgb_probs, seq_probs, y_test, task_type='binary', weight_x
         if task_type == 'binary':
             results['auc'] = roc_auc_score(y_test, avg_probs[:, 1])
         else:
-            results['auc'] = roc_auc_score(y_test, avg_probs, multi_class='ovr', average='macro')
+            test_classes = sorted(y_test.unique())
+            if len(test_classes) < avg_probs.shape[1]:
+                probs_filtered = avg_probs[:, test_classes]
+                results['auc'] = roc_auc_score(y_test, probs_filtered, multi_class='ovr', average='macro', labels=test_classes)
+            else:
+                results['auc'] = roc_auc_score(y_test, avg_probs, multi_class='ovr', average='macro')
     except:
         results['auc'] = 0.5
 
