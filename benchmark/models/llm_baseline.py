@@ -5,7 +5,7 @@ Evaluates closed-source LLMs via OpenAI API on four tasks:
   1. Next behavioral state (5-class) - subsampled 1000 windows
   2. Error imminence 15s (binary) - subsampled 1000 windows
   3. Query imminence 15s (binary) - subsampled 1000 windows
-  4. Post-query improvement (binary) - full query-level test set
+  4. Query type prediction (5-class: d/i/u/f/n) - window-level
 
 Reads test deployments from manifest.yaml automatically.
 
@@ -15,10 +15,13 @@ Usage:
   python3 benchmark/models/llm_baseline.py --model gpt-4o
   python3 benchmark/models/llm_baseline.py --model gpt-5.5
 
-Run all three back to back:
+Run all back to back:
   python3 benchmark/models/llm_baseline.py --model gpt-4o-mini --output llm_results_4o_mini.json && \
   python3 benchmark/models/llm_baseline.py --model gpt-4o --output llm_results_4o.json && \
   python3 benchmark/models/llm_baseline.py --model gpt-5.5 --output llm_results_5_5.json
+
+Run only query type:
+  python3 benchmark/models/llm_baseline.py --model gpt-4o-mini --tasks query_type --output llm_results_4o_mini_qt.json
 """
 
 from dotenv import load_dotenv
@@ -27,11 +30,13 @@ load_dotenv()
 import argparse
 import json
 import os
+import re
 import time
 import yaml
 import numpy as np
 import pandas as pd
 from sklearn.metrics import roc_auc_score, f1_score, classification_report
+from sklearn.preprocessing import label_binarize
 from openai import OpenAI
 
 
@@ -119,39 +124,20 @@ def build_query_imminence_prompt(row):
 Respond with ONLY a number between 0.0 and 1.0 representing the probability the student will query within 15 seconds. No explanation."""
 
 
-def build_post_query_improvement_prompt(row):
-    return f"""You are analyzing a programming student's behavior before an AI query. Based on the features below, predict the probability that the student's test pass count will increase after this AI interaction.
+def build_query_type_prompt(row):
+    features = format_window_features(row)
+    return f"""You are analyzing a programming student's IDE activity during a 30-second window. The student is about to submit a query to an AI assistant within the next 15 seconds. Based on the behavioral features below, predict what type of query they will ask.
 
-Pre-query behavior (what the student did before this query):
-- Code edits before query: {int(row.get('pre_code_edits', 0))}
-- Terminal runs before query: {int(row.get('pre_terminal_runs', 0))}
-- Terminal errors before query: {int(row.get('pre_terminal_errors', 0))}
-- Net code growth: {int(row.get('pre_net_code_growth', 0))}
-- Thinking time before query: {row.get('thinking_time_s', 0):.1f}s
-- Time spent on errors: {row.get('thinking_error_s', 0):.1f}s
-- Time spent on code: {row.get('thinking_code_s', 0):.1f}s
-- Debugging time: {row.get('debugging_time_s', 0):.1f}s
-- Time in editor: {row.get('pre_time_in_editor_s', 0):.1f}s
-- Time in terminal: {row.get('pre_time_in_terminal_s', 0):.1f}s
-- Time in chat: {row.get('pre_time_in_chat_s', 0):.1f}s
-- Longest idle before query: {row.get('pre_longest_idle_s', 0):.1f}s
-- Duration before query: {row.get('pre_duration_s', 0):.1f}s
-- Failed test self-fix attempts: {int(row.get('pre_failed_test_self_fix', 0))}
-- Failed test to edit time: {row.get('pre_failed_test_to_edit_s', 0):.1f}s
-- Error self-fix attempts: {int(row.get('pre_error_self_fix', 0))}
+The possible query types are:
+- d: Debugging — seeking help to resolve errors or unexpected behavior in their code
+- i: Implementation — asking how to implement, write, or produce code for a specific task
+- u: Understanding — asking about general programming concepts or language features
+- f: Follow-up — a brief conversational reaction to a prior AI response (e.g., "ok", "thanks", "idk")
+- n: Nothing — no substantive content (stray characters, accidental sends)
 
-Session context:
-- Query index: {int(row.get('query_index', 0))}
-- Time since session start: {row.get('time_since_session_start_s', 0):.1f}s
-- Time since last query: {row.get('time_since_last_query_s', 0):.1f}s
-- Query length (chars): {int(row.get('query_length_chars', 0))}
-- AI response length (chars): {int(row.get('ai_response_length_chars', 0))}
+{features}
 
-Test state at query:
-- Tests passed: {int(row.get('test_passed_at_query', 0))}
-- Tests total: {int(row.get('test_total_at_query', 0))}
-
-Respond with ONLY a number between 0.0 and 1.0 representing the probability that tests will improve after this AI interaction. No explanation."""
+Respond with ONLY one of these five letters: d, i, u, f, n. No explanation."""
 
 
 # ── API caller ───────────────────────────────────────────────────────────────
@@ -166,13 +152,12 @@ def call_llm(client, prompt, model="gpt-4o-mini", max_retries=3):
                     {"role": "user", "content": prompt},
                 ],
             }
-            # GPT-5.x reasoning models don't support temperature or max_tokens
             if model.startswith("gpt-5"):
                 kwargs["max_completion_tokens"] = 500
             else:
                 kwargs["temperature"] = 0.0
                 kwargs["max_tokens"] = 20
-            
+
             response = client.chat.completions.create(**kwargs)
             return response.choices[0].message.content.strip()
         except Exception as e:
@@ -186,14 +171,12 @@ def call_llm(client, prompt, model="gpt-4o-mini", max_retries=3):
 
 
 def parse_probability(response_text):
-    """Extract a probability value from LLM response."""
     if response_text is None:
         return None
     try:
         val = float(response_text.strip())
         return max(0.0, min(1.0, val))
     except ValueError:
-        import re
         matches = re.findall(r'(?<!\d)([01]\.?\d*)', response_text)
         if matches:
             try:
@@ -205,7 +188,6 @@ def parse_probability(response_text):
 
 
 def parse_state(response_text):
-    """Extract a behavioral state from LLM response."""
     if response_text is None:
         return None
     text = response_text.strip().lower()
@@ -215,6 +197,23 @@ def parse_state(response_text):
     for state_name in STATE_NAMES:
         if state_name in text:
             return state_name
+    return None
+
+
+def parse_query_type(response_text):
+    if response_text is None:
+        return None
+    text = response_text.strip().lower()
+    VALID_TYPES = ['d', 'i', 'u', 'f', 'n']
+    if text in VALID_TYPES:
+        return text
+    # Search for single letter in response
+    for qt in VALID_TYPES:
+        if qt in text.split():
+            return qt
+    # Try first character
+    if text and text[0] in VALID_TYPES:
+        return text[0]
     return None
 
 
@@ -232,7 +231,6 @@ def load_manifest(root_dir):
 
 
 def load_test_data(data_dir, test_deployments, data_type):
-    """Load and concatenate test deployment CSVs."""
     subdir = 'window_level' if data_type == 'windows' else 'query_level'
     suffix = '_windows.csv' if data_type == 'windows' else '_queries.csv'
     dfs = []
@@ -270,7 +268,6 @@ def stratified_subsample(df, label_col, n=1000, seed=42):
 # ── Task runners ─────────────────────────────────────────────────────────────
 
 def run_binary_task(client, df, model, sample_size, task_name, label_col, prompt_builder):
-    """Run a binary probability prediction task."""
     print(f"\n{'=' * 60}")
     print(f"  TASK: {task_name}")
     print(f"{'=' * 60}")
@@ -329,21 +326,21 @@ def run_binary_task(client, df, model, sample_size, task_name, label_col, prompt
     }
 
 
-def run_next_state_task(client, df, model, sample_size):
-    """Run next behavioral state prediction (5-class)."""
+def run_multiclass_task(client, df, model, sample_size, task_name, label_col,
+                        prompt_builder, parse_fn, class_names):
     print(f"\n{'=' * 60}")
-    print(f"  TASK: NEXT BEHAVIORAL STATE (5-class)")
+    print(f"  TASK: {task_name}")
     print(f"{'=' * 60}")
 
-    label_col = 'label_next_state'
     if label_col not in df.columns:
         print(f"  ERROR: {label_col} not found in data")
         return None
 
-    STATE_MAP = {'thinking': 0, 'implementing': 1, 'debugging': 2, 'seekinghelp': 3, 'testing': 4}
-    STATE_NAMES = {v: k for k, v in STATE_MAP.items()}
-
     sample = stratified_subsample(df, label_col, n=sample_size)
+
+    print(f"\n  Distribution:")
+    for val, count in sample[label_col].value_counts().items():
+        print(f"    {val}: {count} ({count/len(sample)*100:.1f}%)")
 
     predictions = []
     labels = []
@@ -355,28 +352,24 @@ def run_next_state_task(client, df, model, sample_size):
             err_pct = (errors / (i + 1)) * 100
             print(f"  Processing {i + 1}/{len(sample)}... ({valid} valid, {errors} errors [{err_pct:.0f}%])")
 
-        prompt = build_next_state_prompt(row)
+        prompt = prompt_builder(row)
         response = call_llm(client, prompt, model)
-        matched_state = parse_state(response)
+        parsed = parse_fn(response)
 
-        if matched_state is None:
+        if parsed is None:
             errors += 1
-            if errors <= 3:
+            if errors <= 5:
                 print(f"    Could not parse: '{response}'")
             continue
 
-        predictions.append(STATE_MAP[matched_state])
-        label_val = row[label_col]
-        if isinstance(label_val, str):
-            labels.append(STATE_MAP.get(label_val.lower(), -1))
-        else:
-            labels.append(int(label_val))
+        predictions.append(parsed)
+        labels.append(row[label_col])
 
     if len(predictions) < 10:
         print(f"  ERROR: Only {len(predictions)} valid predictions, skipping")
         return None
 
-    from sklearn.preprocessing import label_binarize
+    # Compute AUC via binarization
     unique_labels = sorted(set(labels) | set(predictions))
     if len(unique_labels) < 2:
         print(f"  ERROR: Only {len(unique_labels)} unique labels")
@@ -399,13 +392,12 @@ def run_next_state_task(client, df, model, sample_size):
 
     report = classification_report(
         labels, predictions,
-        target_names=[STATE_NAMES[i] for i in unique_labels],
         labels=unique_labels, zero_division=0,
     )
     print(f"\n{report}")
 
     return {
-        'task': 'next_behavioral_state',
+        'task': task_name,
         'auc': round(auc, 3),
         'f1': round(f1, 3),
         'n_samples': len(predictions),
@@ -421,7 +413,7 @@ def main():
     parser.add_argument('--sample-size', type=int, default=1000, help='Subsample size for window tasks')
     parser.add_argument('--model', default='gpt-4o-mini', help='OpenAI model name')
     parser.add_argument('--output', default='llm_results.json', help='Output JSON path')
-    parser.add_argument('--tasks', default='next_state,error_imminence,query_imminence,post_query',
+    parser.add_argument('--tasks', default='next_state,error_imminence,query_imminence,query_type',
                         help='Comma-separated tasks to run')
     args = parser.parse_args()
 
@@ -445,24 +437,23 @@ def main():
     client = OpenAI()
     results = []
 
-    # Load window-level data
+    # Load window-level data (used by all tasks)
     df_windows = None
-    if any(t in tasks_to_run for t in ['next_state', 'error_imminence', 'query_imminence']):
+    if any(t in tasks_to_run for t in ['next_state', 'error_imminence', 'query_imminence', 'query_type']):
         print("  Loading test windows...")
         df_windows = load_test_data(data_dir, test_deployments, 'windows')
         print(f"  Total test windows: {len(df_windows)}")
 
-    # Load query-level data
-    df_queries = None
-    if 'post_query' in tasks_to_run:
-        print("\n  Loading test queries...")
-        df_queries = load_test_data(data_dir, test_deployments, 'queries')
-        print(f"  Total test queries: {len(df_queries)}")
-
     # Task 1: Next behavioral state
     if 'next_state' in tasks_to_run and df_windows is not None:
-        result = run_next_state_task(client, df_windows, args.model, args.sample_size)
+        result = run_multiclass_task(
+            client, df_windows, args.model, args.sample_size,
+            'NEXT BEHAVIORAL STATE (5-class)', 'label_next_state',
+            build_next_state_prompt, parse_state,
+            ['thinking', 'implementing', 'debugging', 'seekinghelp', 'testing'],
+        )
         if result:
+            result['task'] = 'next_behavioral_state'
             results.append(result)
 
     # Task 2: Error imminence 15s
@@ -485,14 +476,16 @@ def main():
         if result:
             results.append(result)
 
-    # Task 4: Post-query improvement
-    if 'post_query' in tasks_to_run and df_queries is not None:
-        result = run_binary_task(
-            client, df_queries, args.model, len(df_queries),
-            'post_query_improvement', 'label_post_query_improvement',
-            build_post_query_improvement_prompt,
+    # Task 4: Query type prediction (window-level)
+    if 'query_type' in tasks_to_run and df_windows is not None:
+        result = run_multiclass_task(
+            client, df_windows, args.model, args.sample_size,
+            'QUERY TYPE (5-class, window-level)', 'label_next_query_type',
+            build_query_type_prompt, parse_query_type,
+            ['d', 'i', 'u', 'f', 'n'],
         )
         if result:
+            result['task'] = 'query_type'
             results.append(result)
 
     # Save results
@@ -508,7 +501,6 @@ def main():
         json.dump(output, f, indent=2)
     print(f"\n  Results saved to {output_path}")
 
-    # Print summary
     print(f"\n{'=' * 60}")
     print(f"  SUMMARY — {args.model}")
     print(f"{'=' * 60}")
