@@ -1,0 +1,16 @@
+{
+  "model": "gpt-4o-mini",
+  "test_deployments": [
+    "deployment_2"
+  ],
+  "sample_size": 1000,
+  "results": [
+    {
+      "task": "query_type",
+      "auc": 0.528,
+      "f1": 0.179,
+      "n_samples": 526,
+      "n_errors": 0
+    }
+  ]
+}

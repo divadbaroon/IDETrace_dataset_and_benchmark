@@ -1,0 +1,16 @@
+{
+  "model": "gpt-5.5",
+  "test_deployments": [
+    "deployment_2"
+  ],
+  "sample_size": 1000,
+  "results": [
+    {
+      "task": "query_type",
+      "auc": 0.565,
+      "f1": 0.259,
+      "n_samples": 524,
+      "n_errors": 2
+    }
+  ]
+}

@@ -26,10 +26,10 @@ MANIFEST_PATH = os.path.join(ROOT_DIR, 'manifest.yaml')
 RESULTS_DIR = os.path.join(ROOT_DIR, 'benchmark', 'all_results')
 
 TASKS = {
-    'next_behavioral_state': True,
-    'error_imminence': True,
-    'query_imminence': True,
-    'post_query_improvement': True,
+    'next_behavioral_state': False,
+    'error_imminence': False,
+    'query_imminence': False,
+    'query_type': True,
 }
 
 ALL_DEPLOYMENTS = {
