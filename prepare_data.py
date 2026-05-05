@@ -349,7 +349,7 @@ def generate_windows(df, seg_df, out_path, query_label_map=None):
                     f[f'label_next_{k}_states'] = None
 
             # Task 2: Error imminence
-            for horizon in [15, 30, 60]:
+            for horizon in [5, 10, 15, 30, 45, 60]:
                 f[f'label_error_imminence_{horizon}s'] = int(any(we <= et <= we + horizon for et in err_times))
 
             # Task 3: Query imminence

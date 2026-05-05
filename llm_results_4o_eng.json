@@ -1,0 +1,17 @@
+{
+  "model": "gpt-4o",
+  "test_deployments": [
+    "deployment_2"
+  ],
+  "sample_size": 1000,
+  "results": [
+    {
+      "task": "query_engagement",
+      "auc": 0.539,
+      "f1": 0.439,
+      "n_samples": 526,
+      "n_errors": 0,
+      "pos_rate": 0.74
+    }
+  ]
+}

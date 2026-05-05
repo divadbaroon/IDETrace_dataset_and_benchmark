@@ -841,7 +841,7 @@ def main():
         print("  TASK 2: ERROR IMMINENCE")
         print("=" * 60)
 
-        for horizon in [15, 30, 60]:
+        for horizon in [5, 10, 15, 30, 45, 60]:
             label_col = f'label_error_imminence_{horizon}s'
             if label_col not in train_windows.columns:
                 continue

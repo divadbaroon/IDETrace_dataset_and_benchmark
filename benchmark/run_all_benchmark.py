@@ -27,7 +27,7 @@ RESULTS_DIR = os.path.join(ROOT_DIR, 'benchmark', 'all_results')
 
 TASKS = {
     'next_behavioral_state': False,
-    'error_imminence': False,
+    'error_imminence': True,
     'query_imminence': False,
     'query_type': True,
 }
