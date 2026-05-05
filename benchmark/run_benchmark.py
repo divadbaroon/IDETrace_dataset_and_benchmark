@@ -16,7 +16,7 @@ Tasks:
        1b. Next behavioral sequence (k=3, k=5)
     2. Error imminence (window-level, binary at multiple horizons)
     3. Query imminence (window-level, binary at multiple horizons)
-    4. Query type prediction (query-level + window-level, 5-class: d/i/u/f/n)
+    4. Query engagement prediction (window-level + query-level, binary: guided vs dependent)
 """
 
 import sys
@@ -62,27 +62,19 @@ except ImportError:
 # ══════════════════════════════════════════════════════════════
 
 def safe_multiclass_auc(y_true, y_prob):
-    """Compute multiclass AUC, handling mismatched class counts between train and test.
-    
-    When the test set has fewer classes than the model was trained on,
-    we filter the probability matrix to only the classes present in the test set,
-    renormalize so rows sum to 1.0, and remap labels to sequential 0-based indices.
-    """
+    """Compute multiclass AUC, handling mismatched class counts between train and test."""
     try:
         test_classes = sorted(np.unique(y_true))
         n_prob_cols = y_prob.shape[1]
-        
+
         if len(test_classes) < 2:
             return 0.5
-        
+
         if len(test_classes) < n_prob_cols:
-            # Filter to columns for classes present in test
             y_prob_filtered = y_prob[:, test_classes]
-            # Renormalize so rows sum to 1.0
             row_sums = y_prob_filtered.sum(axis=1, keepdims=True)
             row_sums = np.where(row_sums == 0, 1, row_sums)
             y_prob_filtered = y_prob_filtered / row_sums
-            # Remap labels to sequential 0-based indices
             label_map = {c: i for i, c in enumerate(test_classes)}
             if isinstance(y_true, pd.Series):
                 y_true_remapped = y_true.map(label_map).values
@@ -104,14 +96,6 @@ DATASET_DIR = os.path.join(ROOT_DIR, 'dataset')
 MANIFEST_PATH = os.path.join(ROOT_DIR, 'manifest.yaml')
 
 STATE_NAMES = ['thinking', 'implementing', 'debugging', 'seekingHelp', 'testing']
-QUERY_TYPE_NAMES = ['d', 'f', 'i', 'n', 'u']
-QUERY_TYPE_LABELS = {
-    'd': 'Debugging',
-    'f': 'Follow-up',
-    'i': 'Implementation',
-    'n': 'Nothing',
-    'u': 'Understanding',
-}
 
 # Window-level feature groups for ablation
 LAYER_1_FEATURES = [
@@ -897,15 +881,48 @@ def main():
                 results[f'query_imminence_{horizon}s'] = res
 
     # ══════════════════════════════════════════════════════════
-    #  TASK 4: QUERY TYPE PREDICTION
+    #  TASK 4: QUERY ENGAGEMENT (guided vs dependent)
     # ══════════════════════════════════════════════════════════
 
     if tasks.get('query_type'):
         print("\n" + "=" * 60)
-        print("  TASK 4: QUERY TYPE PREDICTION")
+        print("  TASK 4: QUERY ENGAGEMENT (guided vs dependent)")
         print("=" * 60)
 
-        # Load query datasets and labels
+        # ── 4a: Window-level prediction ──
+        if 'label_next_query_type' in train_windows.columns:
+            print(f"\n  --- Window-level (sliding window → query engagement) ---")
+
+            train_qt_win = train_windows[train_windows['label_next_query_type'].notna()].copy()
+            test_qt_win = test_windows[test_windows['label_next_query_type'].notna()].copy()
+
+            # Map guided=0, dependent=1 (predicting dependency)
+            engagement_map = {'guided': 0, 'dependent': 1}
+            train_qt_win = train_qt_win[train_qt_win['label_next_query_type'].isin(engagement_map.keys())].copy()
+            test_qt_win = test_qt_win[test_qt_win['label_next_query_type'].isin(engagement_map.keys())].copy()
+            train_qt_win['label_dependent'] = train_qt_win['label_next_query_type'].map(engagement_map)
+            test_qt_win['label_dependent'] = test_qt_win['label_next_query_type'].map(engagement_map)
+
+            if len(train_qt_win) > 0 and len(test_qt_win) > 0:
+                print(f"\n  Distribution (train):")
+                for label, count in train_qt_win['label_next_query_type'].value_counts().items():
+                    print(f"    {label}: {count} ({count/len(train_qt_win)*100:.1f}%)")
+                print(f"\n  Distribution (test):")
+                for label, count in test_qt_win['label_next_query_type'].value_counts().items():
+                    print(f"    {label}: {count} ({count/len(test_qt_win)*100:.1f}%)")
+
+                res = run_ablation(
+                    train_qt_win, test_qt_win,
+                    'Query engagement (window)', 'label_dependent',
+                    window_layers, task_type='binary',
+                    seg_train=train_segments, seg_test=test_segments,
+                )
+                if res:
+                    results['query_engagement_window'] = res
+            else:
+                print("  SKIPPED (insufficient window-level engagement labels)")
+
+        # ── 4b: Query-level prediction ──
         train_queries = pd.concat([load_dataset(n, 'queries') for n in train_names], ignore_index=True)
         test_queries = pd.concat([load_dataset(n, 'queries') for n in test_names], ignore_index=True)
 
@@ -913,7 +930,6 @@ def main():
         test_labels = load_query_labels(test_names)
 
         if len(train_labels) > 0 and len(test_labels) > 0:
-            # Merge labels into queries
             train_queries = train_queries.merge(
                 train_labels[['student_id', 'query_index', 'query_type']],
                 on=['student_id', 'query_index'], how='left'
@@ -923,86 +939,28 @@ def main():
                 on=['student_id', 'query_index'], how='left'
             )
 
-            # Filter to valid labels
-            valid_types = {'d', 'i', 'u', 'f', 'n'}
-            train_queries = train_queries[
-                train_queries['query_type'].isin(valid_types)
-            ].copy()
-            test_queries = test_queries[
-                test_queries['query_type'].isin(valid_types)
-            ].copy()
+            # Map to binary
+            train_queries = train_queries[train_queries['query_type'].isin(engagement_map.keys())].copy()
+            test_queries = test_queries[test_queries['query_type'].isin(engagement_map.keys())].copy()
+            train_queries['label_dependent'] = train_queries['query_type'].map(engagement_map)
+            test_queries['label_dependent'] = test_queries['query_type'].map(engagement_map)
 
-            print(f"  Train: {len(train_queries)} queries | Test: {len(test_queries)} queries")
+            if len(train_queries) > 0 and len(test_queries) > 0:
+                print(f"\n  --- Query-level (pre-query features → query engagement) ---")
+                print(f"  Train: {len(train_queries)} queries | Test: {len(test_queries)} queries")
 
-            print(f"\n  Query type distribution (train):")
-            for qt, count in train_queries['query_type'].value_counts().items():
-                label = QUERY_TYPE_LABELS.get(qt, qt)
-                print(f"    {qt} ({label}): {count} ({count/len(train_queries)*100:.1f}%)")
+                q_feats = [c for c in Q_PRE_FEATURES if c in train_queries.columns]
+                q_layers = {'Pre-query features': q_feats}
 
-            print(f"\n  Query type distribution (test):")
-            for qt, count in test_queries['query_type'].value_counts().items():
-                label = QUERY_TYPE_LABELS.get(qt, qt)
-                print(f"    {qt} ({label}): {count} ({count/len(test_queries)*100:.1f}%)")
-
-            # ── 4a: Query-level prediction ──
-            print(f"\n  --- Query-level (pre-query features → query type) ---")
-
-            q_feats = [c for c in Q_PRE_FEATURES if c in train_queries.columns]
-
-            q_layers = {
-                'Pre-query features': q_feats,
-            }
-
-            res = run_ablation(
-                train_queries, test_queries,
-                'Query type (query-level)', 'query_type',
-                q_layers, task_type='multiclass',
-                seg_train=train_segments, seg_test=test_segments,
-                time_col='time_since_session_start_s',
-            )
-            if res:
-                results['query_type_query_level'] = res
-
-                best = 'XGBoost' if 'XGBoost' in res else 'RandomForest'
-                best_cond = 'Pre-query features'
-                if best in res and best_cond in res[best]:
-                    pc = res[best][best_cond].get('per_class')
-                    if pc:
-                        print(f"\n  Per-class ({best}):")
-                        print(f"  {'Type':<25s} {'Prec':>8s} {'Rec':>8s} {'F1':>8s} {'N':>8s}")
-                        print(f"  {'-' * 55}")
-                        for qt in sorted(pc.keys()):
-                            if qt in ['accuracy', 'macro avg', 'weighted avg']:
-                                continue
-                            s = pc[qt]
-                            label = QUERY_TYPE_LABELS.get(qt, qt)
-                            print(f"  {qt} ({label}){' '*(17-len(label))} {s['precision']:>8.3f} {s['recall']:>8.3f} {s['f1-score']:>8.3f} {int(s['support']):>8d}")
-
-            # ── 4b: Window-level prediction ──
-            if 'label_next_query_type' in train_windows.columns:
-                print(f"\n  --- Window-level (sliding window → next query type) ---")
-
-                train_qt_win = train_windows[train_windows['label_next_query_type'].notna()].copy()
-                test_qt_win = test_windows[test_windows['label_next_query_type'].notna()].copy()
-
-                if len(train_qt_win) > 0 and len(test_qt_win) > 0:
-                    print(f"\n  Window-level query type distribution (train):")
-                    for qt, count in train_qt_win['label_next_query_type'].value_counts().items():
-                        label = QUERY_TYPE_LABELS.get(qt, qt)
-                        print(f"    {qt} ({label}): {count} ({count/len(train_qt_win)*100:.1f}%)")
-
-                    res = run_ablation(
-                        train_qt_win, test_qt_win,
-                        'Query type (window-level)', 'label_next_query_type',
-                        window_layers, task_type='multiclass',
-                        seg_train=train_segments, seg_test=test_segments,
-                    )
-                    if res:
-                        results['query_type_window_level'] = res
-                else:
-                    print("  SKIPPED (insufficient window-level query type labels)")
-        else:
-            print("  SKIPPED (no query type labels found)")
+                res = run_ablation(
+                    train_queries, test_queries,
+                    'Query engagement (query-level)', 'label_dependent',
+                    q_layers, task_type='binary',
+                    seg_train=train_segments, seg_test=test_segments,
+                    time_col='time_since_session_start_s',
+                )
+                if res:
+                    results['query_engagement_query_level'] = res
 
     # ══════════════════════════════════════════════════════════
     #  FEATURE IMPORTANCE
@@ -1022,6 +980,14 @@ def main():
         print_importance(train_windows, 'label_query_imminence_15s', 'Query imminence (15s)', LAYER_3_FEATURES)
 
     if tasks.get('query_type'):
+        # Window-level importance
+        if 'label_next_query_type' in train_windows.columns:
+            train_qt_win = train_windows[train_windows['label_next_query_type'].isin(['guided', 'dependent'])].copy()
+            if len(train_qt_win) > 0:
+                train_qt_win['label_dependent'] = train_qt_win['label_next_query_type'].map({'guided': 0, 'dependent': 1})
+                print_importance(train_qt_win, 'label_dependent', 'Query engagement (window-level)', LAYER_3_FEATURES)
+
+        # Query-level importance
         train_queries = pd.concat([load_dataset(n, 'queries') for n in train_names], ignore_index=True)
         train_labels = load_query_labels(train_names)
         if len(train_labels) > 0:
@@ -1029,14 +995,11 @@ def main():
                 train_labels[['student_id', 'query_index', 'query_type']],
                 on=['student_id', 'query_index'], how='left'
             )
-            train_queries = train_queries[train_queries['query_type'].isin({'d', 'i', 'u', 'f', 'n'})].copy()
-            q_feats = [c for c in Q_PRE_FEATURES if c in train_queries.columns]
-            print_importance(train_queries, 'query_type', 'Query type (query-level)', q_feats)
-
-        if 'label_next_query_type' in train_windows.columns:
-            train_qt_win = train_windows[train_windows['label_next_query_type'].notna()]
-            if len(train_qt_win) > 0:
-                print_importance(train_qt_win, 'label_next_query_type', 'Query type (window-level)', LAYER_3_FEATURES)
+            train_queries = train_queries[train_queries['query_type'].isin(['guided', 'dependent'])].copy()
+            if len(train_queries) > 0:
+                train_queries['label_dependent'] = train_queries['query_type'].map({'guided': 0, 'dependent': 1})
+                q_feats = [c for c in Q_PRE_FEATURES if c in train_queries.columns]
+                print_importance(train_queries, 'label_dependent', 'Query engagement (query-level)', q_feats)
 
     # ══════════════════════════════════════════════════════════
     #  SUMMARY
@@ -1057,7 +1020,7 @@ def main():
        1b. Next behavioral sequence (k=3, k=5)
     2. Error imminence (15s, 30s, 60s)
     3. Query imminence (5s, 10s, 15s, 30s, 45s, 60s)
-    4. Query type prediction (query-level + window-level, 5-class)
+    4. Query engagement (binary: guided vs dependent)
 
   Ablation: Raw telemetry → +Observable metrics → +Behavioral sequences
   Baselines: Majority, LogReg, RF{', XGBoost' if HAS_XGBOOST else ''}{', MLP, Seq-LSTM, Seq-GRU, Seq-CNN, Seq-Transformer, XGB+Best' if HAS_TORCH else ''}

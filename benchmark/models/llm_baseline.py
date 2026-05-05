@@ -5,23 +5,13 @@ Evaluates closed-source LLMs via OpenAI API on four tasks:
   1. Next behavioral state (5-class) - subsampled 1000 windows
   2. Error imminence 15s (binary) - subsampled 1000 windows
   3. Query imminence 15s (binary) - subsampled 1000 windows
-  4. Query type prediction (5-class: d/i/u/f/n) - window-level
-
-Reads test deployments from manifest.yaml automatically.
+  4. Query engagement (binary: guided vs dependent) - window-level
 
 Usage:
   cd tutortrace_dataset_and_benchmark
-  python3 benchmark/models/llm_baseline.py --model gpt-4o-mini
-  python3 benchmark/models/llm_baseline.py --model gpt-4o
-  python3 benchmark/models/llm_baseline.py --model gpt-5.5
-
-Run all back to back:
-  python3 benchmark/models/llm_baseline.py --model gpt-4o-mini --output llm_results_4o_mini.json && \
-  python3 benchmark/models/llm_baseline.py --model gpt-4o --output llm_results_4o.json && \
-  python3 benchmark/models/llm_baseline.py --model gpt-5.5 --output llm_results_5_5.json
-
-Run only query type:
-  python3 benchmark/models/llm_baseline.py --model gpt-4o-mini --tasks query_type --output llm_results_4o_mini_qt.json
+  python3 benchmark/models/llm_baseline.py --model gpt-4o-mini --tasks query_type
+  python3 benchmark/models/llm_baseline.py --model gpt-4o --tasks query_type
+  python3 benchmark/models/llm_baseline.py --model gpt-5.5 --tasks query_type
 """
 
 from dotenv import load_dotenv
@@ -124,20 +114,17 @@ def build_query_imminence_prompt(row):
 Respond with ONLY a number between 0.0 and 1.0 representing the probability the student will query within 15 seconds. No explanation."""
 
 
-def build_query_type_prompt(row):
+def build_query_engagement_prompt(row):
     features = format_window_features(row)
-    return f"""You are analyzing a programming student's IDE activity during a 30-second window. The student is about to submit a query to an AI assistant within the next 15 seconds. Based on the behavioral features below, predict what type of query they will ask.
+    return f"""You are analyzing a programming student's IDE activity during a 30-second window. The student is about to submit a query to an AI assistant within the next 15 seconds. Based on the behavioral features below, predict the probability that this query will be DEPENDENT rather than GUIDED.
 
-The possible query types are:
-- d: Debugging — seeking help to resolve errors or unexpected behavior in their code
-- i: Implementation — asking how to implement, write, or produce code for a specific task
-- u: Understanding — asking about general programming concepts or language features
-- f: Follow-up — a brief conversational reaction to a prior AI response (e.g., "ok", "thanks", "idk")
-- n: Nothing — no substantive content (stray characters, accidental sends)
+DEPENDENT means the student is offloading cognitive work to the AI — pasting code with no question, vague requests like "help" or "idk", delegating with "ok do that", or asking the AI to just write the code. The student has NOT done cognitive work to identify what they need.
+
+GUIDED means the student demonstrates independent thinking — asking a specific question, identifying a problem or confusion, describing what they tried and what went wrong. The student has done cognitive work to formulate what they need.
 
 {features}
 
-Respond with ONLY one of these five letters: d, i, u, f, n. No explanation."""
+Respond with ONLY a number between 0.0 and 1.0 representing the probability the query will be DEPENDENT. No explanation."""
 
 
 # ── API caller ───────────────────────────────────────────────────────────────
@@ -197,23 +184,6 @@ def parse_state(response_text):
     for state_name in STATE_NAMES:
         if state_name in text:
             return state_name
-    return None
-
-
-def parse_query_type(response_text):
-    if response_text is None:
-        return None
-    text = response_text.strip().lower()
-    VALID_TYPES = ['d', 'i', 'u', 'f', 'n']
-    if text in VALID_TYPES:
-        return text
-    # Search for single letter in response
-    for qt in VALID_TYPES:
-        if qt in text.split():
-            return qt
-    # Try first character
-    if text and text[0] in VALID_TYPES:
-        return text[0]
     return None
 
 
@@ -369,7 +339,6 @@ def run_multiclass_task(client, df, model, sample_size, task_name, label_col,
         print(f"  ERROR: Only {len(predictions)} valid predictions, skipping")
         return None
 
-    # Compute AUC via binarization
     unique_labels = sorted(set(labels) | set(predictions))
     if len(unique_labels) < 2:
         print(f"  ERROR: Only {len(unique_labels)} unique labels")
@@ -390,10 +359,7 @@ def run_multiclass_task(client, df, model, sample_size, task_name, label_col,
     print(f"  AUC:      {auc:.3f}")
     print(f"  Macro F1: {f1:.3f}")
 
-    report = classification_report(
-        labels, predictions,
-        labels=unique_labels, zero_division=0,
-    )
+    report = classification_report(labels, predictions, labels=unique_labels, zero_division=0)
     print(f"\n{report}")
 
     return {
@@ -476,17 +442,23 @@ def main():
         if result:
             results.append(result)
 
-    # Task 4: Query type prediction (window-level)
+    # Task 4: Query engagement (guided vs dependent)
     if 'query_type' in tasks_to_run and df_windows is not None:
-        result = run_multiclass_task(
-            client, df_windows, args.model, args.sample_size,
-            'QUERY TYPE (5-class, window-level)', 'label_next_query_type',
-            build_query_type_prompt, parse_query_type,
-            ['d', 'i', 'u', 'f', 'n'],
-        )
-        if result:
-            result['task'] = 'query_type'
-            results.append(result)
+        # Map to binary: dependent=1, guided=0
+        df_qt = df_windows[df_windows['label_next_query_type'].isin(['guided', 'dependent'])].copy()
+        df_qt['label_dependent'] = (df_qt['label_next_query_type'] == 'dependent').astype(int)
+
+        if len(df_qt) > 0:
+            result = run_binary_task(
+                client, df_qt, args.model, args.sample_size,
+                'query_engagement', 'label_dependent',
+                build_query_engagement_prompt,
+            )
+            if result:
+                result['task'] = 'query_engagement'
+                results.append(result)
+        else:
+            print("  ERROR: No query engagement labels found in windows")
 
     # Save results
     output = {
