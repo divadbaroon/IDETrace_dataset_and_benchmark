@@ -587,13 +587,18 @@ def generate_queries(df, seg_df, out_path):
             has_prior_ai = len(prior_resp) > 0
             prev_q_ts = s.loc[q_indices[qi - 1]]['timestamp_s'] if qi > 0 else None
 
-            w = s[(s['timestamp_s'] >= win_start) & (s['timestamp_s'] < q_ts)]
-            dur = max(0.1, q_ts - win_start)
+            # Cut off 15s before query to align with query imminence prediction point
+            cutoff = q_ts - 15
+            if cutoff <= win_start:
+                # Less than 15s of pre-query behavior — skip this query
+                continue
+            w = s[(s['timestamp_s'] >= win_start) & (s['timestamp_s'] < cutoff)]
+            dur = max(0.1, cutoff - win_start)
 
             pre = _compute_window_metrics(w, dur)
 
             pre_seg_start_ms = (win_start - t0) * 1000
-            pre_seg_end_ms = (q_ts - t0) * 1000
+            pre_seg_end_ms = (cutoff - t0) * 1000
             pre_behav = _compute_segment_features(student_segs, pre_seg_start_ms, pre_seg_end_ms, prefix='')
 
             response_reading_time = 0
