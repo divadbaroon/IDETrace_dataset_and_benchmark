@@ -4,11 +4,11 @@
 
 IDETrace is a large-scale behavioral telemetry dataset capturing fine-grained student interactions with an AI-assisted programming environment. The dataset spans **8 classroom deployments** across introductory Python courses, comprising:
 
-- **629 students** (369 using the AI tutor)
+- **664 students (367 using the AI tutor)
 - **882,367 telemetry events** (204,092 excluding mouse movements)
 - **15,991 behavioral sequences** (auto-segmented into thinking, implementing, debugging, seeking help, and testing states)
 - **89,015 observable metric observations** (87,439 window-level + 1,576 query-level)
-- **1,681 labeled queries** classified as *guided* or *dependent* help-seeking
+- **1,692 labeled queries** classified as *guided* or *dependent* help-seeking
 
 The dataset is organized into a three-layer abstraction:
 
