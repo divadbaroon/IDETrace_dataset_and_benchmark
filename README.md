@@ -1,8 +1,8 @@
-# TutorTrace: A Behavioral Telemetry Dataset and Benchmark for AI-Assisted Programming Education
+# IDETrace: A Dataset for Novice Programmer Behavior Prediction in AI-Assisted Coding
 
 ## Overview
 
-TutorTrace is a large-scale behavioral telemetry dataset capturing fine-grained student interactions with an AI-assisted programming environment. The dataset spans **8 classroom deployments** across introductory Python courses, comprising:
+IDETrace is a large-scale behavioral telemetry dataset capturing fine-grained student interactions with an AI-assisted programming environment. The dataset spans **8 classroom deployments** across introductory Python courses, comprising:
 
 - **629 students** (369 using the AI tutor)
 - **882,367 telemetry events** (204,092 excluding mouse movements)
