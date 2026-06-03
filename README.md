@@ -2,8 +2,6 @@
 
 A behavioral telemetry dataset for predicting novice programmer behavior in AI-assisted coding environments. The dataset captures fine-grained IDE interactions from 664 students across 8 classroom deployments of an introductory Python course with an integrated AI tutor.
 
-**Paper:** [IDETrace: A Dataset for Novice Programmer Behavior Prediction in AI-Assisted Coding]()  
-**Dataset:** [HuggingFace](https://huggingface.co/datasets/idetrace-anon/idetrace-dataset)  
 **License:** CC BY 4.0
 
 ## Dataset
