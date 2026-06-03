@@ -1,19 +1,3 @@
-"""
-TutorTrace Full Benchmark Suite
-================================
-Runs all benchmark configurations automatically:
-  1. Setup A: D1 train → D2 test (main results)
-  2. Per-deployment: D1 train → each deployment individually
-  3. Setup B: D1+D3+D4 train → D2+D5 test (multi-instructor)
-
-Manages its own manifest for each configuration and restores
-the original when done (or on failure).
-
-Usage:
-    cd tutortrace_dataset_and_benchmark
-    python3 benchmark/run_all_benchmarks.py
-"""
-
 import os
 import sys
 import yaml

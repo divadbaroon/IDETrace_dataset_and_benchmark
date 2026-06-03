@@ -1,4 +1,3 @@
-"""Compare wall-clock vs active session durations."""
 import json
 import os
 import yaml

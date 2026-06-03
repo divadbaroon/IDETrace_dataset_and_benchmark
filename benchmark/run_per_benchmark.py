@@ -1,12 +1,3 @@
-"""
-Run benchmark per-deployment: trains on D1, tests on each deployment individually.
-Saves results to separate JSON files for the generalization table.
-
-Usage:
-  cd tutortrace_dataset_and_benchmark
-  python3 benchmark/run_per_deployment.py
-"""
-
 import yaml
 import subprocess
 import json

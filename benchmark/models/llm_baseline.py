@@ -1,19 +1,3 @@
-"""
-LLM Baseline Evaluation for TutorTrace Benchmark (Closed-Source).
-
-Evaluates closed-source LLMs via OpenAI API on four tasks:
-  1. Next behavioral state (5-class) - subsampled 1000 windows
-  2. Error imminence 15s (binary) - subsampled 1000 windows
-  3. Query imminence 15s (binary) - subsampled 1000 windows
-  4. Query engagement (binary: guided vs dependent) - window-level
-
-Usage:
-  cd tutortrace_dataset_and_benchmark
-  python3 benchmark/models/llm_baseline.py --model gpt-4o-mini --tasks query_type
-  python3 benchmark/models/llm_baseline.py --model gpt-4o --tasks query_type
-  python3 benchmark/models/llm_baseline.py --model gpt-5.5 --tasks query_type
-"""
-
 from dotenv import load_dotenv
 load_dotenv()
 

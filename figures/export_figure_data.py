@@ -1,15 +1,3 @@
-"""
-Export data for paper figures.
-
-Generates:
-  1. figures/word_cloud_queries.csv — all query texts with guided/dependent labels
-  2. figures/behavioral_distribution.csv — segments with session progress and query context
-
-Usage:
-  cd tutortrace_dataset_and_benchmark
-  python3 figures/export_figure_data.py
-"""
-
 import os
 import json
 import yaml

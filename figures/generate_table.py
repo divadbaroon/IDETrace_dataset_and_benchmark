@@ -1,4 +1,3 @@
-"""Generate HTML tables from benchmark results.json and dataset stats."""
 import json
 import sys
 import os

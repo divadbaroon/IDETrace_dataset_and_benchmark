@@ -1,25 +1,3 @@
-"""
-TutorTrace Benchmark
-====================
-Runs prediction tasks on prepared datasets.
-
-Prerequisites:
-    python prepare_data.py    # generates segments, windows, queries
-
-Usage:
-    cd benchmark/
-    python run_benchmark.py
-
-Tasks:
-    1. Next behavioral state (window-level, 5-class)
-       1a. Thinking subtype (4-class, conditional)
-       1b. Next behavioral sequence (k=3, k=5)
-    2. Error imminence (window-level, binary at multiple horizons)
-    3. Query imminence (window-level, binary at multiple horizons)
-    4. Query engagement prediction (window-level + query-level, binary: guided vs dependent)
-"""
-
-import sys
 import os
 import json
 import yaml

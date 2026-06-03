@@ -1,31 +1,3 @@
-"""
-TutorTrace Auto-Segmenter
-=========================
-Converts raw IDE telemetry events into behavioral segments.
-
-Each segment has a behavioral state:
-  - thinking    (reading task, reviewing code, pausing)
-  - implementing (writing/editing code)
-  - debugging   (editing code after an unresolved error)
-  - seekingHelp (typing/sending a query to the AI tutor)
-  - testing     (running code, viewing terminal output, test results)
-
-Pipeline steps:
-  1. buildMajorSegments        — group by event category, split code on 6s gaps
-  2. fillGapsWithThinking      — gaps ≥3s → Thinking; smaller → extend adjacent
-  3. mergeShortTestingSegments — testing <1.5s → absorb into neighbor
-  4. absorbPreQueryPauses      — short thinking before chat → metadata
-  5. applyErrorState           — implementing + unresolved error → debugging
-  6. applyThinkingSubtypes     — task / llm / error / code
-  7. postProcessSegments       — fix nulls + merge consecutive same-behavior
-
-Usage:
-    from auto_segmenter import auto_segment_events
-    segments = auto_segment_events(events, start_time_ms, duration_ms)
-"""
-
-import copy
-
 # ══════════════════════════════════════════════════════════════
 #  BEHAVIORAL CODES
 # ══════════════════════════════════════════════════════════════

@@ -1,20 +1,7 @@
-"""
-Window Size Ablation for TutorTrace Benchmark.
-
-Tests multiple window sizes (15s, 30s, 45s, 60s) with proportional step sizes.
-For each size: regenerates windows, runs benchmark, saves results.
-
-Usage:
-  cd tutortrace_dataset_and_benchmark
-  python3 benchmark/run_window_ablation.py
-"""
-
 import os
 import re
 import subprocess
 import json
-import shutil
-
 
 WINDOW_CONFIGS = [
     {'window_s': 15, 'step_s': 3},

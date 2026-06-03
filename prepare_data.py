@@ -1,27 +1,3 @@
-"""
-TutorTrace Data Preparation
-============================
-Reads the manifest, checks for existing derived files,
-and generates any that are missing from raw telemetry.
-
-Usage:
-    python prepare_data.py                  # generate missing files
-    python prepare_data.py --force          # regenerate everything
-    python prepare_data.py --only segments  # only generate segments
-
-Pipeline:
-    raw_telemetry.json
-        → behavioral_sequences/segments.csv      (auto-segmenter)
-        → observable_metrics/windows.csv          (sliding window features)
-        → observable_metrics/queries.csv          (per-query features)
-
-Tasks:
-    1. Next behavioral state (window-level, 5-class)
-    2. Error imminence (window-level, binary at multiple horizons)
-    3. Query imminence (window-level, binary at multiple horizons)
-    4. Query type prediction (window-level + query-level, 5-class)
-"""
-
 import os
 import sys
 import json
