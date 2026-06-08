@@ -1,73 +1,22 @@
-# ══════════════════════════════════════════════════════════════
-#  BEHAVIORAL CODES
-# ══════════════════════════════════════════════════════════════
+"""
+Behavioral auto-segmenter: 7-step pipeline for classifying raw IDE
+telemetry events into behavioral state sequences.
 
-BEHAVIORAL_CODES = {
-    'thinking':     {'id': 'thinking',     'label': 'Thinking'},
-    'implementing': {'id': 'implementing', 'label': 'Implementing'},
-    'debugging':    {'id': 'debugging',    'label': 'Debugging'},
-    'seekingHelp':  {'id': 'seekingHelp',  'label': 'Seeking Help'},
-    'testing':      {'id': 'testing',      'label': 'Testing'},
-    'unknown':      {'id': 'unknown',      'label': 'Unknown'},
-}
+Pipeline:
+    1. Build major segments from event categories
+    2. Fill gaps with thinking segments
+    3. Merge short testing segments
+    4. Absorb pre-query pauses
+    5. Apply error state (implementing → debugging)
+    6. Apply thinking subtypes
+    7. Post-process (fix nulls, merge consecutive, re-index)
+"""
 
+from codes import (
+    TERMINAL_EVENTS,
+    get_behavior, get_event_category, get_behavior_for_category,
+)
 
-def get_behavior(behavior_id):
-    """Look up a behavioral code by ID."""
-    return BEHAVIORAL_CODES.get(behavior_id, BEHAVIORAL_CODES['unknown'])
-
-
-# ══════════════════════════════════════════════════════════════
-#  EVENT CLASSIFICATION
-# ══════════════════════════════════════════════════════════════
-
-CODE_EVENTS = {
-    'CODE_TYPE', 'CODE_DELETE', 'CODE_DELETE_SELECTION',
-    'CODE_PASTE', 'CODE_CUT', 'CODE_UNDO', 'CODE_REDO', 'CODE_INDENT',
-    'CODE_UNKNOWN',
-}
-
-TERMINAL_EVENTS = {
-    'TERMINAL_RUN', 'TEST_CASE_RESULT', 'TERMINAL_ERROR', 'TERMINAL_OUTPUT',
-}
-
-CHAT_INPUT_EVENTS = {
-    'CHAT_TYPE', 'CHAT_PASTE', 'CHAT_DELETE', 'CHAT_QUERY',
-}
-
-CHAT_RESPONSE_EVENTS = {
-    'CHAT_RESPONSE',
-}
-
-
-def get_event_category(event):
-    """Classify an event into a behavioral category."""
-    event_type = event.get('type', '')
-    if event_type in CODE_EVENTS:
-        return 'code'
-    if event_type in TERMINAL_EVENTS:
-        return 'terminal'
-    if event_type in CHAT_INPUT_EVENTS:
-        return 'chatInput'
-    if event_type in CHAT_RESPONSE_EVENTS:
-        return 'chatResponse'
-    return None
-
-
-def get_behavior_for_category(category):
-    """Map event category to behavioral state."""
-    mapping = {
-        'code':         'implementing',
-        'terminal':     'testing',
-        'chatInput':    'seekingHelp',
-        'chatResponse': 'thinking',
-    }
-    return get_behavior(mapping.get(category, 'unknown'))
-
-
-# ══════════════════════════════════════════════════════════════
-#  MAIN ENTRY POINT
-# ══════════════════════════════════════════════════════════════
 
 def auto_segment_events(events, start_time, duration):
     """
@@ -84,14 +33,12 @@ def auto_segment_events(events, start_time, duration):
     if not events or len(events) == 0:
         return []
 
-    # Normalize timestamps relative to start
     normalized = []
     for e in events:
         ne = dict(e)
         ne['time'] = e['timestamp'] - start_time
         normalized.append(ne)
 
-    # Run the 7-step pipeline
     major_segments = build_major_segments(normalized, duration)
     all_segments = fill_gaps_with_thinking(major_segments, duration)
     merged_testing = merge_short_testing_segments(all_segments)
@@ -113,18 +60,15 @@ def build_major_segments(events, duration):
     current_segment = None
     current_category = None
     last_event_time = None
-    seg_counter = 0
 
     for event in events:
         category = get_event_category(event)
         if category is None:
             continue
 
-        # Skip chat responses if we're not in a chat input segment
         if category == 'chatResponse' and current_category and current_category != 'chatInput':
             continue
 
-        # Split code segments on inactivity gaps
         if (category == current_category and category == 'code'
                 and last_event_time is not None):
             gap = event['time'] - last_event_time
@@ -142,7 +86,6 @@ def build_major_segments(events, duration):
                     'preQueryPause': None,
                 }
 
-        # Category change
         if category != current_category:
             if current_segment is not None:
                 if current_category == 'chatInput' and category == 'chatResponse':
@@ -177,7 +120,7 @@ def build_major_segments(events, duration):
 # ══════════════════════════════════════════════════════════════
 
 def fill_gaps_with_thinking(major_segments, duration):
-    """Insert Thinking segments in gaps ≥3s; extend adjacent for smaller gaps."""
+    """Insert Thinking segments in gaps >= 3s; extend adjacent for smaller gaps."""
     MIN_THINKING_MS = 3000
 
     if len(major_segments) == 0:
@@ -195,7 +138,6 @@ def fill_gaps_with_thinking(major_segments, duration):
     all_segments = []
     seg_index = 0
 
-    # Handle gap before first segment
     first = major_segments[0]
     if first['startTime'] >= MIN_THINKING_MS:
         all_segments.append({
@@ -211,7 +153,6 @@ def fill_gaps_with_thinking(major_segments, duration):
     elif first['startTime'] > 0:
         first['startTime'] = 0
 
-    # Process segments and gaps between them
     for i in range(len(major_segments)):
         current = major_segments[i]
         all_segments.append(current)
@@ -238,7 +179,6 @@ def fill_gaps_with_thinking(major_segments, duration):
             elif gap_duration > 0:
                 current['endTime'] = next_seg['startTime']
 
-    # Handle gap after last segment
     last = all_segments[-1]
     end_gap = duration - last['endTime']
 
@@ -299,7 +239,7 @@ def merge_short_testing_segments(segments):
 # ══════════════════════════════════════════════════════════════
 
 def absorb_pre_query_pauses(segments):
-    """Short thinking before chat input → absorbed as metadata."""
+    """Short thinking before chat input -> absorbed as metadata."""
     MAX_PRE_QUERY_PAUSE_MS = 5000
 
     if len(segments) < 3:
@@ -335,14 +275,13 @@ def absorb_pre_query_pauses(segments):
 # ══════════════════════════════════════════════════════════════
 
 def apply_error_state(segments, events):
-    """Reclassify implementing → debugging when there's an unresolved error."""
+    """Reclassify implementing -> debugging when there's an unresolved error."""
     has_unresolved_error = False
 
     result = []
     for segment in segments:
         seg = dict(segment)
 
-        # Find events in this segment
         seg_events = [e for e in events
                       if e['time'] >= seg['startTime'] and e['time'] < seg['endTime']]
 
@@ -381,14 +320,13 @@ def apply_error_state(segments, events):
 def apply_thinking_subtypes(segments, events):
     """
     Classify each Thinking segment with a subtype:
-      thinking-task  — no code/run/chat activity has occurred yet
-      thinking-llm   — previous segment was seekingHelp
-      thinking-error — most recent terminal run had an unresolved error
-      thinking-code  — residual: reviewing own code
+      thinking-task  -- no code/run/chat activity has occurred yet
+      thinking-llm   -- previous segment was seekingHelp
+      thinking-error -- most recent terminal run had an unresolved error
+      thinking-code  -- residual: reviewing own code
     """
     has_any_activity = False
 
-    # Pre-compute failed and passed run times
     failed_run_times = set()
     passed_run_times = set()
 
@@ -415,21 +353,18 @@ def apply_thinking_subtypes(segments, events):
             result.append(seg)
             continue
 
-        # Rule 1: thinking-task (no activity yet)
         if not has_any_activity:
             has_any_activity = True
             seg['suggestedThinkingSubcategory'] = 'thinking-task'
             result.append(seg)
             continue
 
-        # Rule 2: thinking-llm (previous segment was seekingHelp)
         prev_seg = segments[i - 1] if i > 0 else None
         if prev_seg and (prev_seg.get('suggestedBehavior') or {}).get('id') == 'seekingHelp':
             seg['suggestedThinkingSubcategory'] = 'thinking-llm'
             result.append(seg)
             continue
 
-        # Rule 3: thinking-error (unresolved error before this segment)
         recent_failed = [t for t in failed_run_times if t < seg['startTime']]
         recent_passed = [t for t in passed_run_times if t < seg['startTime']]
 
@@ -442,7 +377,6 @@ def apply_thinking_subtypes(segments, events):
                 result.append(seg)
                 continue
 
-        # Rule 4: thinking-code (residual)
         seg['suggestedThinkingSubcategory'] = 'thinking-code'
         result.append(seg)
 
@@ -455,14 +389,13 @@ def apply_thinking_subtypes(segments, events):
 
 def post_process_segments(segments, events):
     """
-    1. Fix null-behavior segments (terminal → testing, else → thinking)
+    1. Fix null-behavior segments (terminal -> testing, else -> thinking)
     2. Merge consecutive same-behavior segments
     3. Re-index segment IDs
     """
     thinking_behavior = get_behavior('thinking')
     testing_behavior = get_behavior('testing')
 
-    # Step 1: fix null behaviors
     working = []
     for seg in segments:
         s = dict(seg)
@@ -483,7 +416,6 @@ def post_process_segments(segments, events):
 
         working.append(s)
 
-    # Step 2: merge consecutive same-behavior
     if len(working) < 2:
         return working
 
@@ -502,60 +434,7 @@ def post_process_segments(segments, events):
         else:
             merged.append(dict(curr))
 
-    # Step 3: re-index
     for i, seg in enumerate(merged):
         seg['id'] = f'segment-final-{i}-{seg["startTime"]}'
 
     return merged
-
-
-# ══════════════════════════════════════════════════════════════
-#  CONVENIENCE FUNCTIONS
-# ══════════════════════════════════════════════════════════════
-
-def compute_observables(events, start_time):
-    """
-    Compute observable metrics from a list of events.
-    Returns dict with 'before' key containing metric values.
-    
-    This is a simplified version — the full VizPI implementation
-    computes more detailed metrics in the JavaScript frontend.
-    """
-    if not events:
-        return {'before': {}}
-
-    metrics = {}
-    code_events = [e for e in events if e.get('type', '') in CODE_EVENTS]
-    terminal_events = [e for e in events if e.get('type', '') in TERMINAL_EVENTS]
-    error_events = [e for e in events if e.get('type', '') == 'TERMINAL_ERROR']
-    query_events = [e for e in events if e.get('type', '') in CHAT_INPUT_EVENTS]
-
-    duration_ms = max(1, (events[-1]['timestamp'] - events[0]['timestamp'])) if len(events) > 1 else 1
-
-    metrics['codeEdit_count'] = len(code_events)
-    metrics['codeEdit_per_min'] = round(len(code_events) / (duration_ms / 60000), 2) if duration_ms > 0 else 0
-    metrics['terminalRun_count'] = len(terminal_events)
-    metrics['terminalError_count'] = len(error_events)
-    metrics['chatQuery_count'] = len(query_events)
-    metrics['period_duration_ms'] = duration_ms
-
-    # Time since last code edit
-    if code_events:
-        last_code_time = max(e['timestamp'] for e in code_events)
-        metrics['time_since_code_edit_ms'] = events[-1]['timestamp'] - last_code_time
-    else:
-        metrics['time_since_code_edit_ms'] = 999999
-
-    # Mouse moves per minute
-    mouse_events = [e for e in events if e.get('type', '') == 'MOUSE_MOVE']
-    metrics['mouseMove_per_min'] = round(len(mouse_events) / (duration_ms / 60000), 2) if duration_ms > 0 else 0
-
-    return {'before': metrics}
-
-
-def observables_to_features(obs, prefix='obs_'):
-    """Convert observable metrics dict to flat feature dict with prefix."""
-    features = {}
-    for key, value in obs.items():
-        features[f'{prefix}{key}'] = value
-    return features

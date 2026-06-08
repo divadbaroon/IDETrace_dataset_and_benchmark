@@ -7,7 +7,7 @@ import subprocess
 
 ROOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 MANIFEST_PATH = os.path.join(ROOT_DIR, 'manifest.yaml')
-RESULTS_DIR = os.path.join(ROOT_DIR, 'benchmark', 'all_results')
+RESULTS_DIR = os.path.join(ROOT_DIR, 'benchmark', 'results', 'all_results')
 
 TASKS = {
     'next_behavioral_state': False,
@@ -29,38 +29,23 @@ ALL_DEPLOYMENTS = {
 
 
 def build_manifest(train_deps, test_deps):
-    """Build a manifest dict with specified train/test splits."""
     deployments = {}
     for name, path in ALL_DEPLOYMENTS.items():
         if name in train_deps:
-            deployments[name] = {
-                'raw_telemetry': path,
-                'split': 'train',
-                'enabled': True,
-            }
+            deployments[name] = {'raw_telemetry': path, 'split': 'train', 'enabled': True}
         elif name in test_deps:
-            deployments[name] = {
-                'raw_telemetry': path,
-                'split': 'test',
-                'enabled': True,
-            }
+            deployments[name] = {'raw_telemetry': path, 'split': 'test', 'enabled': True}
         else:
-            deployments[name] = {
-                'raw_telemetry': path,
-                'split': 'test',
-                'enabled': False,
-            }
+            deployments[name] = {'raw_telemetry': path, 'split': 'test', 'enabled': False}
     return {'deployments': deployments, 'tasks': TASKS}
 
 
 def write_manifest(manifest_dict):
-    """Write manifest to disk."""
     with open(MANIFEST_PATH, 'w') as f:
         yaml.dump(manifest_dict, f, default_flow_style=False)
 
 
 def run_prepare_and_benchmark(config_name):
-    """Run prepare_data.py --force and run_benchmark.py, saving output."""
     print(f"\n  Preparing data...")
     result = subprocess.run(
         ['python3', os.path.join(ROOT_DIR, 'prepare_data.py'), '--force'],
@@ -76,7 +61,6 @@ def run_prepare_and_benchmark(config_name):
         cwd=ROOT_DIR, capture_output=True, text=True,
     )
 
-    # Save output
     output_path = os.path.join(RESULTS_DIR, f'{config_name}_output.txt')
     with open(output_path, 'w') as f:
         f.write(result.stdout)
@@ -84,8 +68,7 @@ def run_prepare_and_benchmark(config_name):
             f.write('\n\nSTDERR:\n')
             f.write(result.stderr)
 
-    # Save results.json
-    src_results = os.path.join(ROOT_DIR, 'benchmark', 'results.json')
+    src_results = os.path.join(ROOT_DIR, 'benchmark', 'results', 'results.json')
     if os.path.exists(src_results):
         dst_results = os.path.join(RESULTS_DIR, f'{config_name}_results.json')
         shutil.copy2(src_results, dst_results)
@@ -101,55 +84,32 @@ def run_prepare_and_benchmark(config_name):
 def main():
     os.makedirs(RESULTS_DIR, exist_ok=True)
 
-    # Backup original manifest
     backup_path = MANIFEST_PATH + '.backup'
     shutil.copy2(MANIFEST_PATH, backup_path)
 
     try:
-        # ══════════════════════════════════════════════════════
-        #  1. SETUP A: D1 → D2 (main results)
-        # ══════════════════════════════════════════════════════
-
+        # Setup A: D1 → D2
         print("=" * 60)
         print("  CONFIG 1: SETUP A (D1 → D2)")
         print("=" * 60)
-
-        manifest = build_manifest(
-            train_deps=['deployment_1'],
-            test_deps=['deployment_2'],
-        )
+        manifest = build_manifest(train_deps=['deployment_1'], test_deps=['deployment_2'])
         write_manifest(manifest)
         run_prepare_and_benchmark('setup_a')
 
-        # ══════════════════════════════════════════════════════
-        #  2. PER-DEPLOYMENT: D1 → each individually
-        # ══════════════════════════════════════════════════════
-
-        test_deployments = [f'deployment_{i}' for i in range(2, 9)]
-
-        for test_dep in test_deployments:
-            dep_num = test_dep.split('_')[1]
-            config_name = f'per_deploy_d{dep_num}'
-
+        # Per-deployment: D1 → each individually
+        for i in range(2, 9):
+            test_dep = f'deployment_{i}'
             print(f"\n{'=' * 60}")
             print(f"  CONFIG: D1 → {test_dep}")
             print(f"{'=' * 60}")
-
-            manifest = build_manifest(
-                train_deps=['deployment_1'],
-                test_deps=[test_dep],
-            )
+            manifest = build_manifest(train_deps=['deployment_1'], test_deps=[test_dep])
             write_manifest(manifest)
-            run_prepare_and_benchmark(config_name)
+            run_prepare_and_benchmark(f'per_deploy_d{i}')
 
-        # ══════════════════════════════════════════════════════
-        #  3. SETUP B: D1+D3+D4 → D2+D5 (multi-instructor)
-        # ══════════════════════════════════════════════════════
-
+        # Setup B: D1+D3+D4 → D2+D5
         print(f"\n{'=' * 60}")
         print(f"  CONFIG: SETUP B (D1+D3+D4 → D2+D5)")
         print(f"{'=' * 60}")
-
         manifest = build_manifest(
             train_deps=['deployment_1', 'deployment_3', 'deployment_4'],
             test_deps=['deployment_2', 'deployment_5'],
@@ -157,20 +117,12 @@ def main():
         write_manifest(manifest)
         run_prepare_and_benchmark('setup_b')
 
-        # ══════════════════════════════════════════════════════
-        #  DONE
-        # ══════════════════════════════════════════════════════
-
         print(f"\n{'=' * 60}")
         print(f"  ALL CONFIGURATIONS COMPLETE")
         print(f"{'=' * 60}")
         print(f"  Results saved to: {RESULTS_DIR}/")
-        print(f"  Files:")
-        for f in sorted(os.listdir(RESULTS_DIR)):
-            print(f"    {f}")
 
     finally:
-        # Always restore original manifest
         shutil.copy2(backup_path, MANIFEST_PATH)
         os.remove(backup_path)
         print(f"\n  Manifest restored to original state.")

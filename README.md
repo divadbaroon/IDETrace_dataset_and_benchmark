@@ -2,8 +2,6 @@
 
 A behavioral telemetry dataset for predicting novice programmer behavior in AI-assisted coding environments. The dataset captures fine-grained IDE interactions from 664 students across 8 classroom deployments of an introductory Python course with an integrated AI tutor.
 
-**License:** CC BY 4.0
-
 ## Dataset
 
 882,367 telemetry events from 664 students (386 using the AI tutor), organized into three layers:
@@ -77,8 +75,8 @@ python benchmark/run_all_benchmark.py
 LLM baselines (requires API key or Ollama):
 
 ```bash
-python benchmark/models/llm_baseline.py --model gpt-4o-mini
-python benchmark/models/open_llm_baseline.py --model llama3.1:8b
+python benchmark/models/llm/closed_baseline.py --model gpt-4o-mini
+python benchmark/models/llm/open_baseline.py --model llama3.1:8b
 ```
 
 ## Repository Structure
@@ -98,8 +96,21 @@ python benchmark/models/open_llm_baseline.py --model llama3.1:8b
 ├── benchmark/
 │   ├── run_benchmark.py             # Main benchmark runner
 │   ├── run_all_benchmark.py         # Cross-deployment evaluation
-│   └── models/                      # All model implementations
+│   ├── run_window_ablation.py       # Window size ablation
+│   ├── data.py                      # Constants and data loading
+│   ├── results/                     # All output
+│   └── models/
+│       ├── ml/
+│       │   ├── classical.py         # Majority, LogReg, RF, XGBoost
+│       │   ├── mlp.py              # 3-layer MLP
+│       │   ├── sequential.py       # LSTM, GRU, CNN, Transformer
+│       │   └── ensemble.py         # XGB + best sequential
+│       └── llm/
+│           ├── prompts.py           # Shared prompts and parsers
+│           ├── closed_baseline.py   # OpenAI (GPT-4o, GPT-5.5)
+│           └── open_baseline.py     # Ollama (Llama, Qwen, DeepSeek)
 └── behavioral_classifier/
+    ├── codes.py                     # Behavioral codes and event sets
     └── auto_segmenter.py            # Behavioral state classifier
 ```
 
@@ -126,14 +137,3 @@ Query-level features (CSV) capture pre-query behavioral context computed from th
 ## Ethics
 
 All data is de-identified with randomized IDs. No personally identifiable information is included. Query text content is not included in released features. Study approved under university IRB.
-
-## Citation
-
-```bibtex
-@inproceedings{anonymous2026idetrace,
-  title={IDETrace: A Dataset for Novice Programmer Behavior Prediction in AI-Assisted Coding},
-  author={Anonymous},
-  booktitle={Advances in Neural Information Processing Systems: Datasets and Benchmarks Track},
-  year={2026}
-}
-```

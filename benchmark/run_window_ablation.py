@@ -12,11 +12,9 @@ WINDOW_CONFIGS = [
 
 
 def find_and_replace_window_size(filepath, window_s, step_s):
-    """Replace WINDOW_SIZE_S and WINDOW_STEP_S in prepare_data.py."""
     with open(filepath, 'r') as f:
         content = f.read()
 
-    # Save original values for restoration
     orig_window = re.search(r'WINDOW_SIZE_S\s*=\s*(\d+)', content)
     orig_step = re.search(r'WINDOW_STEP_S\s*=\s*(\d+)', content)
 
@@ -37,7 +35,6 @@ def find_and_replace_window_size(filepath, window_s, step_s):
 
 
 def restore_window_size(filepath, window_s, step_s):
-    """Restore original WINDOW_SIZE_S and WINDOW_STEP_S."""
     with open(filepath, 'r') as f:
         content = f.read()
 
@@ -51,7 +48,7 @@ def restore_window_size(filepath, window_s, step_s):
 def main():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     prepare_data_path = os.path.join(root, 'prepare_data.py')
-    results_dir = os.path.join(root, 'benchmark', 'window_ablation_results')
+    results_dir = os.path.join(root, 'benchmark', 'results', 'window_ablation_results')
     os.makedirs(results_dir, exist_ok=True)
 
     if not os.path.exists(prepare_data_path):
@@ -62,7 +59,6 @@ def main():
     print("  WINDOW SIZE ABLATION")
     print("=" * 60)
     print(f"  Configs: {WINDOW_CONFIGS}")
-    print()
 
     all_results = {}
 
@@ -74,7 +70,6 @@ def main():
         print(f"  WINDOW: {window_s}s (step: {step_s}s)")
         print(f"{'=' * 60}\n")
 
-        # Modify prepare_data.py
         orig_window, orig_step = find_and_replace_window_size(
             prepare_data_path, window_s, step_s
         )
@@ -82,28 +77,21 @@ def main():
             continue
 
         try:
-            # Regenerate windows with --force
             print(f"  Regenerating windows ({window_s}s / {step_s}s)...")
             result = subprocess.run(
                 ['python3', prepare_data_path, '--force'],
-                cwd=root,
-                capture_output=True,
-                text=True,
+                cwd=root, capture_output=True, text=True,
             )
             if result.returncode != 0:
                 print(f"  ERROR in prepare_data.py: {result.stderr[:500]}")
                 continue
 
-            # Run benchmark
             print(f"  Running benchmark...")
             result = subprocess.run(
                 ['python3', os.path.join(root, 'benchmark', 'run_benchmark.py')],
-                cwd=root,
-                capture_output=True,
-                text=True,
+                cwd=root, capture_output=True, text=True,
             )
 
-            # Save output
             output_path = os.path.join(results_dir, f'window_{window_s}s_output.txt')
             with open(output_path, 'w') as f:
                 f.write(result.stdout)
@@ -111,8 +99,7 @@ def main():
                     f.write('\n\nSTDERR:\n')
                     f.write(result.stderr)
 
-            # Copy results.json
-            src_results = os.path.join(root, 'benchmark', 'results.json')
+            src_results = os.path.join(root, 'benchmark', 'results', 'results.json')
             if os.path.exists(src_results):
                 dst_results = os.path.join(results_dir, f'window_{window_s}s_results.json')
                 with open(src_results) as f:
@@ -123,23 +110,15 @@ def main():
 
             print(f"  ✓ {window_s}s complete")
 
-            if result.returncode != 0:
-                print(f"  WARNING: benchmark returned code {result.returncode}")
-
         finally:
-            # Always restore original values
             restore_window_size(prepare_data_path, orig_window, orig_step)
 
-    # Regenerate windows at original size
     print(f"\n  Restoring original windows ({orig_window}s / {orig_step}s)...")
     subprocess.run(
         ['python3', prepare_data_path, '--force'],
-        cwd=root,
-        capture_output=True,
-        text=True,
+        cwd=root, capture_output=True, text=True,
     )
 
-    # Print summary
     print(f"\n{'=' * 60}")
     print(f"  WINDOW ABLATION SUMMARY")
     print(f"{'=' * 60}")
