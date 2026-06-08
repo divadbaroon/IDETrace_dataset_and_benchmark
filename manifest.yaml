@@ -42,7 +42,7 @@ deployments:
     enabled: true
 
 tasks:
-  next_behavioral_state: false
-  error_imminence: false
-  query_imminence: false
+  next_behavioral_state: true
+  error_imminence: true
+  query_imminence: true
   query_type: true
