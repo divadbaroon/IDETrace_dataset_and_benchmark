@@ -32,8 +32,6 @@ Results (train on D1, test on D2):
 | Query Imminence (15s) | XGB+Seq-Trans | .843 |
 | Query Type | Seq-GRU | .771 |
 
-All LLMs tested (GPT-4o, Llama 3.1, Qwen 3.5, DeepSeek-R1) perform near chance, indicating behavioral prediction requires task-specific training.
-
 ## Deployments
 
 | ID | Split | Task | Students | AI Users | Queries |
