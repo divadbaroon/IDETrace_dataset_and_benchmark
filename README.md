@@ -1,4 +1,4 @@
-# IDETrace
+# TutorTrace
 
 A behavioral telemetry dataset for predicting novice programmer behavior in AI-assisted coding environments. The dataset captures fine-grained IDE interactions from 664 students across 8 classroom deployments of an introductory Python course with an integrated AI tutor.
 
