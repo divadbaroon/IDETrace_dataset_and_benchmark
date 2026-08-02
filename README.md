@@ -79,12 +79,6 @@ Both tasks exclude query-composition events (`CHAT_TYPE`, `CHAT_DELETE`, `CHAT_P
 
 These are modest, honest numbers. They demonstrate that window-level summaries of learner activity carry usable signal about the timing and form of help-seeking — not that the task is solved.
 
-## System
-
-TutorTrace is a task-based IDE platform with LLM support, structurally similar to LeetCode or HackerRank: fixed layout with task description, test cases, code editor, terminal, and AI chat window. The constrained interaction space is what makes fine-grained behavioral observation feasible and reproducible.
-
-Events are captured client-side and batched to the backend every five seconds with no impact on the student's workflow. Each event carries a millisecond timestamp, source region, and payload. The tutor is GPT-4o, prompted with a three-level scaffolding framework (Socratic questioning → conceptual hint → concrete scaffolding) and prohibited from emitting runnable code.
-
 ## Quick Start
 
 ```bash
