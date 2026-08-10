@@ -10,7 +10,7 @@ Approximately 180K telemetry events from 480 students (317 using the AI tutor), 
 - **Observable metrics** — 27 continuously computed window-level metrics, retained from 35 candidates after pruning
 - **Behavioral sequences** — 13,633 auto-segmented states (implementing, debugging, testing, seeking help, thinking)
 
-Additionally, queries are labeled as *guided* or *dependent* help-seeking (GPT-4o labels validated against human annotators, κ = .897 human–human, κ = .709/.690 GPT–human).
+Additionally, queries are labeled as *guided* or *dependent* help-seeking (GPT-4o labels validated against human annotators, κ = .897 human–human, κ = .709/.690 GPT–human). Labels are human-validated for deployments 1–2, the paper's scope.
 
 ## Taxonomy
 
@@ -48,7 +48,7 @@ Two prediction tasks demonstrate downstream utility (train on D1, test on D2):
 | D3 | Preliminary eval — baseline | Grade Book | 70 | 48 | 190 |
 | D4 | Preliminary eval — intervention | Grade Book | 107 | 85 | 228 |
 
-Deployment files are not self-describing; identify each by its measured student / AI-user / query counts before use. The preliminary evaluation (§7.3) additionally requires the consent-exclusion list applied to D4. See `DATA_NOTES.md`.
+Deployment files are not self-describing; identify each by its measured student / AI-user / query counts before use. `deployment_4.json` is the intervention session's raw 122-record export, which `analysis/run_preliminary_evaluation.py` reads directly; the consent-exclusion list is needed only to recover Table 6's 107-student denominator. Deployments 5–9 are additional sessions beyond the paper, preserved as-is. See `DATA_NOTES.md`.
 
 ## Quick Start
 
@@ -59,41 +59,64 @@ pip install -r requirements.txt
 Reproduce the taxonomy numbers reported in the paper:
 
 ```bash
-python verify_latest.py
+python analysis/verify/verify_latest.py
 ```
 
 Re-run the full exhaustive searches (969 combinations for W1, 1,140 for W2):
 
 ```bash
-python run_taxonomy.py
+python analysis/run_taxonomy.py
 ```
+
+Reproduce the remaining paper results:
+
+```bash
+python analysis/verify/verify_taxonomy.py       # Figure 3 descriptive columns
+python analysis/verify/verify_table8.py         # Table 8: guided vs. dependent by profile
+python analysis/run_predictions.py              # Table 7 AUROCs
+python analysis/run_preliminary_evaluation.py   # §7.3 classroom evaluation (reads deployment_4.json directly)
+python analysis/run_breakdowns.py               # appendix Tables 12-16
+```
+
+Run everything from the repository root. AUROCs reproduce exactly on x86-64 Linux; on Apple Silicon expect ±0.001–0.002 in third decimals from BLAS differences — the reported .726 / .717 are stable across platforms.
 
 ## Repository Structure
 
 ```
-├── main.py                          # Telemetry loading and feature extraction
-├── run_taxonomy.py                  # Full exhaustive taxonomy searches (W1, W2, W3)
-├── verify_latest.py                 # Reproduces the paper's reported numbers
-├── constants/
-│   └── telemetry_events.yaml        # Telemetry event schema (37 types)
-├── data/
-│   └── raw_telemetry/               # Raw event streams (JSON)
+├── main.py                          # Telemetry loading (merges dataset/raw_telemetry/deployment_*.json)
+├── prepare_data.py                  # Regenerates metric/sequence layers (extended tooling)
 ├── analysis/
 │   ├── feature_extraction.py        # Observable metric computation
-│   └── taxonomy/
-│       ├── windows.py               # W1 / W2 window construction and validity rules
-│       ├── clustering.py            # W1 exhaustive search
-│       ├── clustering_w2.py         # W2 exhaustive search
-│       └── session_patterns.py      # W3 session-pattern clustering
-├── results/
-│   ├── latest_verification.json     # Verification output
-│   ├── verified_w1_w2_exhaustive.json
-│   ├── verified_w3_session_patterns.json
-│   ├── w3_session_pattern_assignments.csv
-│   └── w3_session_pattern_report.md
-└── behavioral_classifier/
-    ├── codes.py                     # Behavioral codes and event sets
-    └── auto_segmenter.py            # Behavioral state classifier
+│   ├── windows.py                   # W1 / W2 window construction and validity rules
+│   ├── clustering.py                # W1 exhaustive search
+│   ├── clustering_w2.py             # W2 exhaustive search
+│   ├── session_patterns.py          # W3 session-pattern clustering
+│   ├── pipeline.py                  # Prediction windows, feature layers, evaluation
+│   ├── run_taxonomy.py              # Full exhaustive taxonomy searches
+│   ├── run_predictions.py           # Prediction tasks (Table 7)
+│   ├── run_breakdowns.py            # Appendix Tables 12-16
+│   ├── run_preliminary_evaluation.py# §7.3 classroom evaluation
+│   └── verify/
+│       ├── verify_latest.py         # Reproduces the paper's taxonomy numbers
+│       ├── verify_taxonomy.py       # Figure 3 descriptive columns
+│       └── verify_table8.py         # Table 8 by profile
+├── behavioral_classifier/
+│   ├── codes.py                     # Behavioral codes and event sets
+│   └── auto_segmenter.py            # Behavioral state classifier
+├── constants/
+│   └── telemetry_events.yaml        # Telemetry event schema (37 types)
+├── dataset/
+│   ├── raw_telemetry/               # Raw event streams (JSON), deployments 1-9
+│   ├── behavioral_sequences/        # Auto-classified segments
+│   ├── observable_metrics/          # Window- and query-level metrics
+│   └── query_labels/                # Guided/dependent labels
+├── benchmark/                       # Extended benchmark (beyond the paper)
+├── figures/                         # Dataset statistics tooling
+├── results/                         # Generated by the scripts at runtime
+├── DATA_NOTES.md                    # Deployment identification, D4 status, caveats
+├── datasheet.md
+├── croissant.json
+└── manifest.yaml
 ```
 
 ## Data Format
@@ -112,7 +135,7 @@ Raw telemetry is stored as JSON per deployment, keyed by session ID:
 }
 ```
 
-Loading merges every `deployment_*.json` under a namespaced key (`deployment_N:session_id`) so session IDs cannot collide across files, and tags each record with its source deployment.
+Loading merges every `deployment_*.json` under a namespaced key (`deployment_N:session_id`) so session IDs cannot collide across files, and tags each record with its source deployment. `deployment_4.json` uses the wrapped `{"students": [...]}` export format and is skipped by the merge loader; `analysis/run_preliminary_evaluation.py` reads it directly.
 
 Sessions are truncated at the first all-pass test result, so no behavior after task completion enters any analysis. Windows containing more than 30 seconds of tab-hidden time are excluded. Event-conditioned metrics that do not apply within a window are treated as undefined rather than imputed as zero.
 
@@ -121,3 +144,7 @@ Reported event counts exclude continuous pointer sampling (`MOUSE_MOVE`, emitted
 ## Ethics
 
 All data is de-identified with randomized IDs. No personally identifiable information is included. Raw telemetry retains learner-authored code and query text as submitted. Study approved under university IRB.
+
+## Citation
+
+[TO CONFIRM: BibTeX for the UIST '26 paper — DOI 10.1145/3830398.3830712.]
