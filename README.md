@@ -32,7 +32,7 @@ Results (deployments D1 + D2):
 
 W1 and W2 rank candidate three-metric combinations by `silhouette × completion-rate spread`; behavioral metrics alone determine cluster membership. W3 uses task completion neither for clustering nor for selecting K, and its assignments are identical across 20 random seeds (ARI = 1.000).
 
-Two prediction tasks demonstrate downstream utility (train on D1, test on D2):
+Two prediction tasks (train on D1, test on D2):
 
 | Task | Granularity | Type | AUROC |
 |------|------------|------|:-----:|
@@ -78,7 +78,7 @@ python analysis/run_preliminary_evaluation.py   # §7.3 classroom evaluation (re
 python analysis/run_breakdowns.py               # appendix Tables 12-16
 ```
 
-Run everything from the repository root. AUROCs reproduce exactly on x86-64 Linux; on Apple Silicon expect ±0.001–0.002 in third decimals from BLAS differences — the reported .726 / .717 are stable across platforms.
+Run everything from the repository root
 
 ## Repository Structure
 
@@ -144,7 +144,3 @@ Reported event counts exclude continuous pointer sampling (`MOUSE_MOVE`, emitted
 ## Ethics
 
 All data is de-identified with randomized IDs. No personally identifiable information is included. Raw telemetry retains learner-authored code and query text as submitted. Study approved under university IRB.
-
-## Citation
-
-[TO CONFIRM: BibTeX for the UIST '26 paper — DOI 10.1145/3830398.3830712.]
