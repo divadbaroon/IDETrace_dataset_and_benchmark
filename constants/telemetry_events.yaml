@@ -1,0 +1,58 @@
+SESSION_EVENTS:
+  - SESSION_START                # User entered workspace (includes window dimensions)
+
+GLOBAL_EVENTS:
+  - MOUSE_MOVE                   # Mouse position (throttled 50ms)
+  - MOUSE_CLICK                  # User clicked in workspace
+  - TAB_STATE                    # User switched browser tabs (visible/hidden)
+  - WINDOW_RESIZE                # User resized the browser window
+  - PANEL_RESIZE                 # User resized a workspace panel 
+
+REGIONS:
+  - CODE_EDITOR                  # Code editor panel
+  - CHAT_WINDOW                  # AI chat panel
+  - TERMINAL                     # Terminal output panel
+  - TASK_DESCRIPTION             # Task description section
+  - TEST_CASES                   # Test cases section
+  - workspace_background         # Default/fallback region
+
+TASK_EVENTS:
+  - TASK_SELECT                  # User highlighted text in task description
+  - TASK_COPY                    # User copied from task description
+
+TEST_EVENTS:
+  - TEST_SELECT                  # User highlighted text in test cases
+  - TEST_COPY                    # User copied from test cases
+
+CODE_EVENTS:
+  - CODE_TYPE                    # User typed characters
+  - CODE_SELECT                  # User highlighted text
+  - CODE_DELETE_SELECTION        # User deleted highlighted text
+  - CODE_COPY                    # User copied to clipboard (Ctrl+C)
+  - CODE_PASTE                   # User pasted content (Ctrl+V)
+  - CODE_DELETE                  # User deleted with Backspace or Delete key
+  - CODE_CUT                     # User cut to clipboard (Ctrl+X)
+  - CODE_UNDO                    # User undid action (Ctrl+Z)
+  - CODE_REDO                    # User redid action (Ctrl+Y / Ctrl+Shift+Z)
+  - CODE_INDENT                  # User indented code (Tab)
+  - CODE_UNKNOWN                 # Unrecognized edit action
+
+TERMINAL_EVENTS:
+  - TERMINAL_RUN                 # User clicked Run Tests
+  - TERMINAL_OUTPUT              # Python printed to stdout
+  - TEST_CASE_RESULT             # Test execution finished with results
+  - TERMINAL_ERROR               # Code threw an error (includes type: SyntaxError, TypeError, etc.)
+  - TERMINAL_SELECT              # User highlighted terminal output
+  - TERMINAL_COPY                # User copied terminal output
+
+CHAT_EVENTS:
+  - CHAT_TYPE                    # User typed in chat input
+  - CHAT_SELECT_INPUT            # User highlighted text in chat input
+  - CHAT_SELECT_HISTORY          # User highlighted text in chat history
+  - CHAT_COPY_INPUT              # User copied from chat input
+  - CHAT_COPY_HISTORY            # User copied from chat history
+  - CHAT_PASTE                   # User pasted into chat input
+  - CHAT_DELETE                  # User deleted text (Backspace/Delete)
+  - CHAT_QUERY                   # User sent message to AI
+  - CHAT_RESPONSE                # AI response received
+  - CHAT_ERROR                   # AI API error
