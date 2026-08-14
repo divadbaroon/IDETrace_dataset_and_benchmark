@@ -15,10 +15,9 @@ Programming Education." **[TO CONFIRM: funding acknowledgments.]**
 Student sessions on a task-based IDE with LLM support: timestamped telemetry
 (37 event types, six interface regions), auto-classified behavioral
 segments, window- and query-level observable metrics, and GPT-4o
-guided/dependent query labels. The repository contains nine raw deployment
-files; the UIST '26 paper uses Deployments 1-4 (see `datanotes.md` for the
-mapping and counts). Deployments 5-9 are additional sessions beyond the
-paper. Chat payloads include students'
+guided/dependent query labels. The repository contains the four raw
+deployment files used by the UIST '26 paper (see `datanotes.md` for the
+mapping and counts). Chat payloads include students'
 free-text queries and AI responses; code payloads include program text at
 character level. **[TO CONFIRM: a PII/self-disclosure scrub over chat and
 code payloads was completed before release.]** Student identifiers are
@@ -37,8 +36,8 @@ expert codebook (overall Cohen's kappa 0.73-0.83 against expert labels and
 learner self-reports). Query labels are GPT-4o generated with the paper's
 published prompt; human validation covers Deployments 1-2 (kappa = .897
 between raters; .709/.690 model vs. raters). Labels for other deployments
-are unvalidated. Deployment 4's derived CSVs predate its current raw file
-(see `datanotes.md`).
+are unvalidated. The derived layers cover Deployments 1-3; Deployment 4
+ships as raw telemetry only (see `datanotes.md`).
 
 ## Uses
 Research on learner behavior modeling, help-seeking, and behavior-aware AI

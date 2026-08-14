@@ -48,7 +48,7 @@ Two prediction tasks (train on D1, test on D2):
 | D3 | Preliminary eval — baseline | Grade Book | 70 | 48 | 190 |
 | D4 | Preliminary eval — intervention | Grade Book | 107 | 85 | 256 |
 
-Counts are measured from the shipped files. Deployment files are not self-describing; identify each by these counts before use. `analysis/run_preliminary_evaluation.py` reads `deployment_4.json` directly. Deployments 5–9 are additional sessions beyond the paper, preserved as-is. See `datanotes.md`.
+Counts are measured from the shipped files. Deployment files are not self-describing; identify each by these counts before use. `analysis/run_preliminary_evaluation.py` reads `deployment_4_intervention.json` directly. See `datanotes.md`.
 
 ## Quick Start
 
@@ -74,7 +74,7 @@ Reproduce the remaining paper results:
 python analysis/verify/verify_taxonomy.py       # Figure 3 descriptive columns
 python analysis/verify/verify_table8.py         # Table 8: guided vs. dependent by profile
 python analysis/run_predictions.py              # Table 7 AUROCs
-python analysis/run_preliminary_evaluation.py   # §7.3 classroom evaluation (reads deployment_4.json directly)
+python analysis/run_preliminary_evaluation.py   # §7.3 classroom evaluation (reads deployment_4_intervention.json directly)
 python analysis/run_breakdowns.py               # appendix Tables 12-16
 ```
 
@@ -106,7 +106,7 @@ Run everything from the repository root
 ├── constants/
 │   └── telemetry_events.yaml        # Telemetry event schema (37 types)
 ├── dataset/
-│   ├── raw_telemetry/               # Raw event streams (JSON), deployments 1-9
+│   ├── raw_telemetry/               # Raw event streams (JSON), deployments 1-4
 │   ├── behavioral_sequences/        # Auto-classified segments
 │   ├── observable_metrics/          # Window- and query-level metrics
 │   └── query_labels/                # Guided/dependent labels
@@ -135,7 +135,7 @@ Raw telemetry is stored as JSON per deployment, keyed by session ID:
 }
 ```
 
-Loading merges every `deployment_*.json` under a namespaced key (`deployment_N:session_id`) so session IDs cannot collide across files, and tags each record with its source deployment. `deployment_4.json` uses the wrapped `{"students": [...]}` export format and is skipped by the merge loader; `analysis/run_preliminary_evaluation.py` reads it directly.
+Loading merges every `deployment_*.json` under a namespaced key (`deployment_N:session_id`) so session IDs cannot collide across files, and tags each record with its source deployment. `deployment_4_intervention.json` uses the wrapped `{"students": [...]}` export format and is skipped by the merge loader; `analysis/run_preliminary_evaluation.py` reads it directly.
 
 Sessions are truncated at the first all-pass test result, so no behavior after task completion enters any analysis. Windows containing more than 30 seconds of tab-hidden time are excluded. Event-conditioned metrics that do not apply within a window are treated as undefined rather than imputed as zero.
 

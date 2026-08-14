@@ -23,8 +23,8 @@ def load_all_deployments(data_dir=data_dir):
         with open(path, 'r') as f:
             deployment = json.load(f)
         if isinstance(deployment, dict) and "students" in deployment:
-            # Wrapped raw source export (deployment_4.json, the intervention
-            # session); read directly by run_preliminary_evaluation.py.
+            # Wrapped source export (deployment_4_intervention.json); read
+            # directly by run_preliminary_evaluation.py.
             continue
         dep_name = os.path.basename(path).replace(".json", "")
         for session_id, student in deployment.items():

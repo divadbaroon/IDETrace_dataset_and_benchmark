@@ -19,12 +19,8 @@ TASKS = {
 ALL_DEPLOYMENTS = {
     'deployment_1': 'raw_telemetry/deployment_1.json',
     'deployment_2': 'raw_telemetry/deployment_2.json',
-    'deployment_3': 'raw_telemetry/deployment_3.json',
-    'deployment_4': 'raw_telemetry/deployment_4.json',
-    'deployment_5': 'raw_telemetry/deployment_5.json',
-    'deployment_6': 'raw_telemetry/deployment_6.json',
-    'deployment_7': 'raw_telemetry/deployment_7.json',
-    'deployment_8': 'raw_telemetry/deployment_8.json',
+    'deployment_3': 'raw_telemetry/deployment_3_baseline.json',
+    'deployment_4': 'raw_telemetry/deployment_4_intervention.json',
 }
 
 
@@ -97,7 +93,7 @@ def main():
         run_prepare_and_benchmark('setup_a')
 
         # Per-deployment: D1 → each individually
-        for i in range(2, 9):
+        for i in range(2, 5):
             test_dep = f'deployment_{i}'
             print(f"\n{'=' * 60}")
             print(f"  CONFIG: D1 → {test_dep}")
@@ -106,13 +102,13 @@ def main():
             write_manifest(manifest)
             run_prepare_and_benchmark(f'per_deploy_d{i}')
 
-        # Setup B: D1+D3+D4 → D2+D5
+        # Setup B: D1+D3+D4 → D2
         print(f"\n{'=' * 60}")
-        print(f"  CONFIG: SETUP B (D1+D3+D4 → D2+D5)")
+        print(f"  CONFIG: SETUP B (D1+D3+D4 → D2)")
         print(f"{'=' * 60}")
         manifest = build_manifest(
             train_deps=['deployment_1', 'deployment_3', 'deployment_4'],
-            test_deps=['deployment_2', 'deployment_5'],
+            test_deps=['deployment_2'],
         )
         write_manifest(manifest)
         run_prepare_and_benchmark('setup_b')

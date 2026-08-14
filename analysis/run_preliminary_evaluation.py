@@ -28,11 +28,13 @@ from analysis.windows import (
 
 ROOT = Path(__file__).resolve().parents[1]
 RAW_DIR = ROOT / "dataset" / "raw_telemetry"
-INTERVENTION_EXPORT = ROOT / "dataset" / "raw_telemetry" / "deployment_4.json"
+INTERVENTION_EXPORT = (
+    ROOT / "dataset" / "raw_telemetry" / "deployment_4_intervention.json"
+)
 if not INTERVENTION_EXPORT.exists():
     raise SystemExit(
-        "dataset/raw_telemetry/deployment_4.json (the raw intervention source "
-        "export, wrapped format) was not found. It ships with this repository; "
+        "dataset/raw_telemetry/deployment_4_intervention.json (the intervention "
+        "source export, wrapped format) was not found. It ships with this repository; "
         "if you have a stripped copy, obtain the export from the authors and "
         "place it at that path."
     )
@@ -40,7 +42,7 @@ OUT_JSON = ROOT / "results" / "preliminary_evaluation_results.json"
 OUT_MD = ROOT / "results" / "preliminary_evaluation_report.md"
 
 TRAIN_DEPLOYMENTS = ("deployment_1", "deployment_2")
-BASELINE_DEPLOYMENT = "deployment_3"
+BASELINE_DEPLOYMENT = "deployment_3_baseline"
 SELECTED_FEATURES = ("time_in_editor_s", "thinking_time_s", "error_self_fix")
 PROFILE_ORDER = ("Passive", "Iterating", "Debugging", "Spinning")
 CLUSTER_TO_PROFILE = {0: "Debugging", 1: "Iterating", 2: "Spinning"}

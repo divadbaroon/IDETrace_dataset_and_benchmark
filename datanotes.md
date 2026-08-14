@@ -9,15 +9,15 @@ counts. The UIST '26 paper uses Deployments 1-4:
 |---|---|---|---|---|
 | `dataset/raw_telemetry/deployment_1.json` | D1 - taxonomy; prediction train | 190 | 94 | 428 |
 | `dataset/raw_telemetry/deployment_2.json` | D2 - taxonomy; prediction test | 113 | 90 | 540 |
-| `dataset/raw_telemetry/deployment_3.json` | D3 - preliminary-evaluation baseline | 70 | 48 | 190 |
-| `dataset/raw_telemetry/deployment_4.json` | D4 - intervention session | 107 | 85 | 256 |
+| `dataset/raw_telemetry/deployment_3_baseline.json` | D3 - preliminary-evaluation baseline | 70 | 48 | 190 |
+| `dataset/raw_telemetry/deployment_4_intervention.json` | D4 - intervention session | 107 | 85 | 256 |
 
-Deployments 5-9 and the `benchmark/` and `figures/` directories are extended
-material beyond the paper and are preserved as-is.
+The `benchmark/` and `figures/` directories are extended material beyond the
+paper and are preserved as-is.
 
 ## Deployment 4 (intervention)
 
-`deployment_4.json` is the intervention session's export in wrapped
+`deployment_4_intervention.json` is the intervention session's export in wrapped
 `{"students": [...]}` format (53,047,605 bytes; 107 records; 174,785 events).
 Because the format is wrapped, the taxonomy loader (`main.py`) skips this
 file automatically.
@@ -28,9 +28,10 @@ Iterating 39.1% -> 56.0%, Debugging 6.2% -> 14.0%, Spinning 4.7% -> 9.3%,
 chi-square(3) = 27.55 (p = 4.52e-06, V = 0.315), U = 1533.0 (p = 3.02e-05),
 completion 33.3% (16/48) -> 43.5% (37/85), Fisher p = .273.
 
-**Caveat:** `deployment_4_segments.csv`, `deployment_4_labels.csv`, and the
-deployment_4 metric CSVs were generated from a *previous* 49-record file
-under the same name and do not describe this export.
+**Note:** the derived layers (behavioral sequences, observable metrics,
+query labels) cover Deployments 1-3 only. Deployment 4 ships as raw
+telemetry; its earlier derived CSVs were generated from a superseded source
+file and have been removed rather than shipped alongside this export.
 
 ## Query labels
 
