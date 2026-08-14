@@ -10,22 +10,23 @@ counts. The UIST '26 paper uses Deployments 1-4:
 | `dataset/raw_telemetry/deployment_1.json` | D1 - taxonomy; prediction train | 190 | 94 | 428 |
 | `dataset/raw_telemetry/deployment_2.json` | D2 - taxonomy; prediction test | 113 | 90 | 540 |
 | `dataset/raw_telemetry/deployment_3.json` | D3 - preliminary-evaluation baseline | 70 | 48 | 190 |
-| `dataset/raw_telemetry/deployment_4.json` | D4 - intervention session (raw export) | 122 (raw) | 85 | 256 (raw) |
+| `dataset/raw_telemetry/deployment_4.json` | D4 - intervention session | 107 | 85 | 256 |
 
 Deployments 5-9 and the `benchmark/` and `figures/` directories are extended
 material beyond the paper and are preserved as-is.
 
 ## Deployment 4 (intervention)
 
-`deployment_4.json` is the intervention session's **raw source export** in
-wrapped `{"students": [...]}` format (55,037,483 bytes; 122 records). The
-paper's Table 6 reports n = 107 students and 228 interactions for D4 - the
-post-consent-exclusion population; this raw export precedes that filtering.
+`deployment_4.json` is the intervention session's export in wrapped
+`{"students": [...]}` format (53,047,605 bytes; 107 records; 174,785 events).
+Because the format is wrapped, the taxonomy loader (`main.py`) skips this
+file automatically.
+
 `analysis/run_preliminary_evaluation.py` reads the file directly and
-reproduces the paper's §7.3 exactly: 48 vs. 85 eligible AI users, Passive
-50.0% -> 20.7%, chi-square(3) = 27.55, U = 1533, completion 33.3% -> 43.5%
-(Fisher p = .273). Because the format is wrapped, the taxonomy loader
-(`main.py`) skips this file automatically.
+reproduces §7.3: 48 vs. 85 pre-completion AI users, Passive 50.0% -> 20.7%,
+Iterating 39.1% -> 56.0%, Debugging 6.2% -> 14.0%, Spinning 4.7% -> 9.3%,
+chi-square(3) = 27.55 (p = 4.52e-06, V = 0.315), U = 1533.0 (p = 3.02e-05),
+completion 33.3% (16/48) -> 43.5% (37/85), Fisher p = .273.
 
 **Caveat:** `deployment_4_segments.csv`, `deployment_4_labels.csv`, and the
 deployment_4 metric CSVs were generated from a *previous* 49-record file

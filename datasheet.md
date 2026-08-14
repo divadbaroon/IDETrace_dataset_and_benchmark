@@ -16,17 +16,13 @@ Student sessions on a task-based IDE with LLM support: timestamped telemetry
 (37 event types, six interface regions), auto-classified behavioral
 segments, window- and query-level observable metrics, and GPT-4o
 guided/dependent query labels. The repository contains nine raw deployment
-files; the UIST '26 paper uses Deployments 1-4 (see `DATA_NOTES.md` for the
-mapping and counts; Deployment 4 ships as its raw 122-record intervention
-export, whereas the paper's Table 6 reports the 107 post-consent-exclusion
-students). Deployments 5-9 are additional sessions beyond the paper. Chat
-payloads include students' free-text queries and AI responses; code payloads
-include program text at character level. **[TO CONFIRM: a
-PII/self-disclosure scrub over chat and code payloads was completed before
-release, and the consent-exclusion list has been applied to all released
-records - including the 15 pending records in the Deployment 4 export.]**
-Student identifiers are pseudonymous; no names, demographics, or grades are
-included.
+files; the UIST '26 paper uses Deployments 1-4 (see `datanotes.md` for the
+mapping and counts). Deployments 5-9 are additional sessions beyond the
+paper. Chat payloads include students'
+free-text queries and AI responses; code payloads include program text at
+character level. **[TO CONFIRM: a PII/self-disclosure scrub over chat and
+code payloads was completed before release.]** Student identifiers are
+pseudonymous; no names, demographics, or grades are included.
 
 ## Collection process
 Passive client-side instrumentation of the TutorTrace web IDE during
@@ -42,7 +38,7 @@ learner self-reports). Query labels are GPT-4o generated with the paper's
 published prompt; human validation covers Deployments 1-2 (kappa = .897
 between raters; .709/.690 model vs. raters). Labels for other deployments
 are unvalidated. Deployment 4's derived CSVs predate its current raw file
-(see `DATA_NOTES.md`).
+(see `datanotes.md`).
 
 ## Uses
 Research on learner behavior modeling, help-seeking, and behavior-aware AI

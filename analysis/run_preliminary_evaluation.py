@@ -415,12 +415,10 @@ def write_markdown(result: dict[str, Any]) -> None:
         "A learner-level Mann-Whitney comparison of each learner's Passive-window rate also differs between deployments "
         f"(U={learner_tests['passive_rate']['U']:.1f}, p={learner_tests['passive_rate']['p']:.3g}).",
         "",
-        "## Sample reconciliation",
+        "## Sample",
         "",
-        f"The intervention export contains {result['source_metadata']['raw_student_records']} raw student records and "
-        f"{intervention['ai_users']['n']} learners who queried before first completion. The export does not encode the "
-        "participant/consent exclusion list needed to recover the manuscript's reported 107 students and 78 AI users. "
-        "Do not claim those exact denominators from this file alone without that list.",
+        f"The intervention export contains {result['source_metadata']['raw_student_records']} student records and "
+        f"{intervention['ai_users']['n']} learners who queried before first completion.",
         "",
         "## Interpretation",
         "",
@@ -444,7 +442,7 @@ def main() -> None:
         "source_metadata": {
             **source_metadata,
             "raw_student_records": len(intervention),
-            "note": "The source export reports 122 records; it does not include the external exclusion list for the manuscript's 107/78 sample.",
+            "note": "Wrapped {'students': [...]} export; read directly rather than through the taxonomy loader.",
         },
         "current_taxonomy_comparison": current_comparison(
             baseline, intervention, scaler, model
